@@ -1,68 +1,15 @@
 """Built-in permission presets."""
 
+
+def _perms(*commands: str) -> dict:
+    """Create permissions dict allowing Bash for given commands."""
+    return {"permissions": {"allow": [f"Bash({cmd} *)" for cmd in commands]}}
+
+
 PRESETS: dict[str, dict] = {
-    "developer": {
-        "permissions": {
-            "allow": [
-                "Bash(git *)",
-                "Bash(npm *)",
-                "Bash(npx *)",
-                "Bash(yarn *)",
-                "Bash(pnpm *)",
-                "Bash(uv *)",
-                "Bash(pip *)",
-                "Bash(python *)",
-                "Bash(node *)",
-                "Bash(make *)",
-                "Bash(cargo *)",
-                "Bash(go *)",
-            ]
-        }
-    },
-    "git": {
-        "permissions": {
-            "allow": [
-                "Bash(git *)",
-                "Bash(gh *)",
-            ]
-        }
-    },
-    "node": {
-        "permissions": {
-            "allow": [
-                "Bash(npm *)",
-                "Bash(npx *)",
-                "Bash(yarn *)",
-                "Bash(pnpm *)",
-                "Bash(node *)",
-            ]
-        }
-    },
-    "python": {
-        "permissions": {
-            "allow": [
-                "Bash(uv *)",
-                "Bash(pip *)",
-                "Bash(python *)",
-                "Bash(pytest *)",
-                "Bash(ruff *)",
-            ]
-        }
-    },
-    "docker": {
-        "permissions": {
-            "allow": [
-                "Bash(docker *)",
-                "Bash(docker-compose *)",
-            ]
-        }
-    },
-    "k8s": {
-        "permissions": {
-            "allow": [
-                "Bash(kubectl *)",
-                "Bash(helm *)",
-            ]
-        }
-    },
+    "developer": _perms("git", "gh", "npm", "npx", "yarn", "pnpm", "uv", "pip", "python", "node", "make", "cargo", "go"),
+    "node": _perms("npm", "npx", "yarn", "pnpm", "node"),
+    "python": _perms("uv", "pip", "python", "pytest", "ruff"),
+    "docker": _perms("docker", "docker-compose"),
+    "k8s": _perms("kubectl", "helm"),
 }

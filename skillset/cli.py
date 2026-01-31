@@ -218,8 +218,6 @@ def find_repo_permissions(repo_dir: Path) -> dict | None:
 def detect_project_types(project_dir: Path) -> list[str]:
     """Detect which built-in presets apply to a project."""
     detected = []
-    if (project_dir / ".git").exists():
-        detected.append("git")
     if (project_dir / "package.json").exists():
         detected.append("node")
     if any(
@@ -279,9 +277,20 @@ def save_user_preset(name: str, settings: dict) -> Path:
 
 
 def get_preset(name: str) -> dict | None:
-    """Get a preset by name (checks user presets first, then builtins)."""
+    """Get a preset by name (checks user presets first, then builtins).
+
+    If the preset is a group, expands and merges all contained presets.
+    """
     user_preset = load_user_preset(name)
     if user_preset:
+        # Check if it's a group
+        if "group" in user_preset:
+            merged = {}
+            for preset_name in user_preset["group"]:
+                preset = get_preset(preset_name)
+                if preset:
+                    merged = deep_merge(merged, preset)
+            return merged
         return user_preset
     return BUILTIN_PRESETS.get(name)
 
@@ -332,7 +341,11 @@ def cmd_list(args: argparse.Namespace) -> None:
     if saved_presets:
         print(f"Saved presets ({presets_dir}):")
         for preset in saved_presets:
-            print(f"  {preset.stem}")
+            data = json.loads(preset.read_text())
+            if "group" in data:
+                print(f"  {preset.stem} (group: {', '.join(data['group'])})")
+            else:
+                print(f"  {preset.stem}")
 
     # List registered repos
     cache_dir = get_cache_dir()
@@ -373,7 +386,19 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 
 def cmd_save(args: argparse.Namespace) -> None:
-    """Save current project permissions as a reusable preset."""
+    """Save current project permissions as a reusable preset, or save a group of presets."""
+    if args.group:
+        # Validate that all presets exist
+        for name in args.group:
+            if not get_preset(name):
+                print(f"Unknown preset '{name}'")
+                sys.exit(1)
+        # Save as a group
+        group_data = {"group": args.group}
+        preset_path = save_user_preset(args.name, group_data)
+        print(f"Saved group '{args.name}' ({', '.join(args.group)}) to {preset_path}")
+        return
+
     settings_path = get_project_settings_path()
     if not settings_path.exists():
         print(f"No settings found at {settings_path}")
@@ -619,6 +644,9 @@ def main() -> None:
     # save
     p_save = subparsers.add_parser("save", help="save project permissions as reusable preset")
     p_save.add_argument("name", help="preset name")
+    p_save.add_argument(
+        "--group", nargs="+", metavar="PRESET", help="save as a group of presets"
+    )
 
     # apply
     p_apply = subparsers.add_parser(
