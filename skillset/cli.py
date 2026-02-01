@@ -215,26 +215,6 @@ def find_repo_permissions(repo_dir: Path) -> dict | None:
     return None
 
 
-def detect_project_types(project_dir: Path) -> list[str]:
-    """Detect which built-in presets apply to a project."""
-    detected = []
-    if (project_dir / "package.json").exists():
-        detected.append("node")
-    if any(
-        (project_dir / f).exists()
-        for f in ("pyproject.toml", "setup.py", "requirements.txt", "Pipfile")
-    ):
-        detected.append("python")
-    if any(
-        (project_dir / f).exists()
-        for f in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml")
-    ):
-        detected.append("docker")
-    if any((project_dir / f).exists() for f in ("k8s", "kubernetes", "helm", "Chart.yaml")):
-        detected.append("k8s")
-    return detected
-
-
 def deep_merge(base: dict, override: dict) -> dict:
     """Deep merge two dictionaries, with override taking precedence."""
     result = base.copy()
@@ -410,54 +390,23 @@ def cmd_save(args: argparse.Namespace) -> None:
 
 
 def cmd_apply(args: argparse.Namespace) -> None:
-    """Apply permission presets (auto-detect or specific)."""
+    """Apply permission presets."""
     settings_path = get_project_settings_path()
-
-    # Specific preset(s) given
-    if args.presets:
-        existing = load_settings(settings_path)
-        total_perms = 0
-        applied = []
-        for name in args.presets:
-            preset = get_preset(name)
-            if not preset:
-                print(f"Unknown preset '{name}'")
-                sys.exit(1)
-            existing = deep_merge(existing, preset)
-            total_perms += len(preset.get("permissions", {}).get("allow", []))
-            applied.append(name)
-        save_settings(settings_path, existing)
-        print(f"Applied {', '.join(applied)} ({total_perms} permissions) to {settings_path}")
-        return
-
-    # Auto-detect
-    project_dir = Path.cwd()
-    detected = detect_project_types(project_dir)
-
-    if not detected:
-        print("No project types detected. Use 'skillset apply <preset> -p' to apply manually.")
-        return
-
-    print(f"Detected: {', '.join(detected)}")
-
-    if args.dry_run:
-        print("Would apply these presets (dry-run):")
-        for name in detected:
-            if name in BUILTIN_PRESETS:
-                perms = BUILTIN_PRESETS[name].get("permissions", {}).get("allow", [])
-                print(f"  {name}: {len(perms)} permission(s)")
-        return
+    presets = args.presets or ["developer"]
 
     existing = load_settings(settings_path)
     total_perms = 0
-    for name in detected:
-        if name in BUILTIN_PRESETS:
-            preset = BUILTIN_PRESETS[name]
-            existing = deep_merge(existing, preset)
-            total_perms += len(preset.get("permissions", {}).get("allow", []))
-
+    applied = []
+    for name in presets:
+        preset = get_preset(name)
+        if not preset:
+            print(f"Unknown preset '{name}'")
+            sys.exit(1)
+        existing = deep_merge(existing, preset)
+        total_perms += len(preset.get("permissions", {}).get("allow", []))
+        applied.append(name)
     save_settings(settings_path, existing)
-    print(f"Applied {len(detected)} preset(s) ({total_perms} permissions) to {settings_path}")
+    print(f"Applied {', '.join(applied)} ({total_perms} permissions) to {settings_path}")
 
 
 def is_local_path(spec: str) -> bool:
@@ -649,13 +598,10 @@ def main() -> None:
     )
 
     # apply
-    p_apply = subparsers.add_parser(
-        "apply", help="apply permission presets (auto-detect or specific)"
-    )
+    p_apply = subparsers.add_parser("apply", help="apply permission presets")
     p_apply.add_argument(
-        "presets", nargs="*", help="preset name(s) to apply (auto-detect if omitted)"
+        "presets", nargs="*", help="preset name(s) to apply (default: developer)"
     )
-    p_apply.add_argument("--dry-run", action="store_true", help="show what would be applied")
 
     # add
     p_add = subparsers.add_parser("add", help="add skills from a GitHub repo")

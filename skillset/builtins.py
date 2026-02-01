@@ -7,9 +7,12 @@ def _perms(*commands: str) -> dict:
 
 
 PRESETS: dict[str, dict] = {
-    "developer": _perms("git", "gh", "npm", "npx", "yarn", "pnpm", "uv", "pip", "python", "node", "make", "cargo", "go"),
-    "node": _perms("npm", "npx", "yarn", "pnpm", "node"),
-    "python": _perms("uv", "pip", "python", "pytest", "ruff"),
-    "docker": _perms("docker", "docker-compose"),
-    "k8s": _perms("kubectl", "helm"),
+    "developer": _perms(
+        "git", "gh",
+        "npm", "npx", "yarn", "pnpm", "node",
+        "uv", "pip", "python", "pytest", "ruff",
+        "docker", "docker-compose",
+        "kubectl", "helm",
+        "make", "cargo", "go",
+    ),
 }
