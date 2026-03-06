@@ -34,3 +34,4 @@ htmlcov/
 
 # Claude skills (symlinks created by skillset)
 .claude/skills/
+.githooks/

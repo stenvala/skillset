@@ -13,19 +13,11 @@ IS_WINDOWS = sys.platform == "win32"
 CLAUDE_SETTINGS_FILE = ".claude/settings.json"
 
 
-def get_presets_dir() -> Path:
-    """Get the directory where permission presets are stored."""
-    return Path.home() / ".config" / "skillset" / "presets"
-
 
 def get_cache_dir() -> Path:
     """Get the directory where repos are cached."""
     return Path.home() / ".cache" / "skillset" / "repos"
 
-
-def get_libs_dir() -> Path:
-    """Get the directory where local skill sources are registered."""
-    return Path.home() / ".cache" / "skillset" / "libs"
 
 
 def get_global_skills_dir() -> Path:
@@ -239,39 +231,8 @@ def merge_permissions(repo_dir: Path, settings_path: Path) -> list[str]:
     return list(repo_perms.keys())
 
 
-def load_user_preset(name: str) -> dict | None:
-    """Load a user-saved preset by name."""
-    preset_path = get_presets_dir() / f"{name}.json"
-    if preset_path.exists():
-        return json.loads(preset_path.read_text())
-    return None
-
-
-def save_user_preset(name: str, settings: dict) -> Path:
-    """Save settings as a user preset."""
-    presets_dir = get_presets_dir()
-    presets_dir.mkdir(parents=True, exist_ok=True)
-    preset_path = presets_dir / f"{name}.json"
-    preset_path.write_text(json.dumps(settings, indent=2) + "\n")
-    return preset_path
-
-
 def get_preset(name: str) -> dict | None:
-    """Get a preset by name (checks user presets first, then builtins).
-
-    If the preset is a group, expands and merges all contained presets.
-    """
-    user_preset = load_user_preset(name)
-    if user_preset:
-        # Check if it's a group
-        if "group" in user_preset:
-            merged = {}
-            for preset_name in user_preset["group"]:
-                preset = get_preset(preset_name)
-                if preset:
-                    merged = deep_merge(merged, preset)
-            return merged
-        return user_preset
+    """Get a preset by name."""
     return BUILTIN_PRESETS.get(name)
 
 
@@ -279,12 +240,12 @@ def get_preset(name: str) -> dict | None:
 
 
 def cmd_list(args: argparse.Namespace) -> None:
-    """List installed skills, commands, and saved presets."""
+    """List installed skills and commands."""
+    prune = getattr(args, "prune", False)
     global_skills_dir = get_global_skills_dir()
     project_skills_dir = get_project_skills_dir()
     global_commands_dir = get_global_commands_dir()
     project_commands_dir = get_project_commands_dir()
-    presets_dir = get_presets_dir()
 
     global_skills = sorted(global_skills_dir.iterdir()) if global_skills_dir.exists() else []
     project_skills = sorted(project_skills_dir.iterdir()) if project_skills_dir.exists() else []
@@ -292,40 +253,44 @@ def cmd_list(args: argparse.Namespace) -> None:
     project_commands = (
         sorted(project_commands_dir.iterdir()) if project_commands_dir.exists() else []
     )
-    saved_presets = sorted(presets_dir.glob("*.json")) if presets_dir.exists() else []
 
-    if global_skills:
-        print(f"Global skills ({global_skills_dir}):")
-        for skill in global_skills:
-            suffix = " -> " + str(skill.resolve()) if is_link(skill) else ""
-            print(f"  {skill.name}{suffix}")
+    home = str(Path.home())
 
-    if project_skills:
-        print(f"Project skills ({project_skills_dir}):")
-        for skill in project_skills:
-            suffix = " -> " + str(skill.resolve()) if is_link(skill) else ""
-            print(f"  {skill.name}{suffix}")
+    def abbrev(path: str | Path) -> str:
+        s = str(path)
+        return s.replace(home, "~", 1) if s.startswith(home) else s
 
-    if global_commands:
-        print(f"Global commands ({global_commands_dir}):")
-        for cmd in global_commands:
-            suffix = " -> " + str(cmd.resolve()) if cmd.is_symlink() else ""
-            print(f"  {cmd.name}{suffix}")
-
-    if project_commands:
-        print(f"Project commands ({project_commands_dir}):")
-        for cmd in project_commands:
-            suffix = " -> " + str(cmd.resolve()) if cmd.is_symlink() else ""
-            print(f"  {cmd.name}{suffix}")
-
-    if saved_presets:
-        print(f"Saved presets ({presets_dir}):")
-        for preset in saved_presets:
-            data = json.loads(preset.read_text())
-            if "group" in data:
-                print(f"  {preset.stem} (group: {', '.join(data['group'])})")
+    def print_grouped(items: list[Path], is_link_fn, label: str, install_dir: Path) -> None:
+        if not items:
+            return
+        print(f"{label} ({abbrev(install_dir)}):")
+        groups: dict[str, list[str]] = {}
+        broken: list[Path] = []
+        for item in items:
+            if is_link_fn(item):
+                resolved = item.resolve()
+                if not resolved.exists():
+                    broken.append(item)
+                    continue
+                target_dir = abbrev(resolved.parent)
             else:
-                print(f"  {preset.stem}")
+                target_dir = "(local)"
+            groups.setdefault(target_dir, []).append(item.name)
+        for target_dir, names in sorted(groups.items()):
+            print(f"  {target_dir}:")
+            for name in sorted(names):
+                print(f"    {name}")
+        for item in broken:
+            if prune:
+                remove_link(item)
+                print(f"  [pruned broken link: {item.name}]")
+            else:
+                print(f"  [broken link: {item.name}]")
+
+    print_grouped(global_skills, is_link, "Global skills", global_skills_dir)
+    print_grouped(project_skills, is_link, "Project skills", project_skills_dir)
+    print_grouped(global_commands, lambda p: p.is_symlink(), "Global commands", global_commands_dir)
+    print_grouped(project_commands, lambda p: p.is_symlink(), "Project commands", project_commands_dir)
 
     # List registered repos
     cache_dir = get_cache_dir()
@@ -337,59 +302,22 @@ def cmd_list(args: argparse.Namespace) -> None:
                     if repo_dir.is_dir():
                         repos.append(f"{owner_dir.name}/{repo_dir.name}")
     if repos:
-        print(f"Repos ({cache_dir}):")
+        print(f"Repos ({abbrev(cache_dir)}):")
         for repo in repos:
             print(f"  {repo}")
-
-    # List registered local libs
-    libs_dir = get_libs_dir()
-    libs = []
-    if libs_dir.exists():
-        for lib_link in sorted(libs_dir.iterdir()):
-            if is_link(lib_link):
-                libs.append((lib_link.name, lib_link.resolve()))
-    if libs:
-        print(f"Local libs ({libs_dir}):")
-        for name, target in libs:
-            print(f"  {name} -> {target}")
 
     if (
         not global_skills
         and not project_skills
         and not global_commands
         and not project_commands
-        and not saved_presets
         and not repos
-        and not libs
     ):
-        print("No skills, commands, presets, repos, or libs found")
+        print("No skills, commands, or repos found")
 
 
-def cmd_save(args: argparse.Namespace) -> None:
-    """Save current project permissions as a reusable preset, or save a group of presets."""
-    if args.group:
-        # Validate that all presets exist
-        for name in args.group:
-            if not get_preset(name):
-                print(f"Unknown preset '{name}'")
-                sys.exit(1)
-        # Save as a group
-        group_data = {"group": args.group}
-        preset_path = save_user_preset(args.name, group_data)
-        print(f"Saved group '{args.name}' ({', '.join(args.group)}) to {preset_path}")
-        return
 
-    settings_path = get_project_settings_path()
-    if not settings_path.exists():
-        print(f"No settings found at {settings_path}")
-        sys.exit(1)
-
-    settings = load_settings(settings_path)
-    preset_path = save_user_preset(args.name, settings)
-    print(f"Saved preset '{args.name}' to {preset_path}")
-
-
-def cmd_apply(args: argparse.Namespace) -> None:
+def cmd_allow(args: argparse.Namespace) -> None:
     """Apply permission presets."""
     settings_path = get_project_settings_path()
     presets = args.presets or ["developer"]
@@ -425,10 +353,10 @@ def add_read_permission(settings_path: Path, target_path: Path) -> None:
 
 
 def register_local_lib(repo_dir: Path) -> None:
-    """Register a local directory in libs for tracking by update."""
-    libs_dir = get_libs_dir()
-    libs_dir.mkdir(parents=True, exist_ok=True)
-    link_path = libs_dir / repo_dir.name
+    """Register a local directory as a symlink under repos/local/ for tracking by update."""
+    local_dir = get_cache_dir() / "local"
+    local_dir.mkdir(parents=True, exist_ok=True)
+    link_path = local_dir / repo_dir.name
     if is_link(link_path):
         remove_link(link_path)
     elif link_path.exists():
@@ -522,7 +450,8 @@ def cmd_update(args: argparse.Namespace) -> None:
             print(f"Repo {args.repo} not installed. Use 'skillset add {args.repo}' first.")
             sys.exit(1)
 
-        clone_or_pull(owner, repo_name)
+        if not is_link(repo_dir):
+            clone_or_pull(owner, repo_name)
 
         # Refresh skills (global or project)
         skills_dir = get_global_skills_dir() if args.g else get_project_skills_dir()
@@ -547,7 +476,6 @@ def cmd_update(args: argparse.Namespace) -> None:
         total_commands = 0
         total_perms = 0
 
-        # Update GitHub repos
         if cache_dir.exists():
             for owner_dir in cache_dir.iterdir():
                 if not owner_dir.is_dir():
@@ -555,27 +483,16 @@ def cmd_update(args: argparse.Namespace) -> None:
                 for repo_dir in owner_dir.iterdir():
                     if not repo_dir.is_dir():
                         continue
-                    clone_or_pull(owner_dir.name, repo_dir.name)
-                    total_skills += len(link_skills(repo_dir, skills_dir))
-                    total_commands += len(link_commands(repo_dir, commands_dir))
-                    merged_keys = merge_permissions(repo_dir, settings_path)
-                    total_perms += len(merged_keys)
-
-        # Update local libs (just re-link, no git pull)
-        libs_dir = get_libs_dir()
-        if libs_dir.exists():
-            for lib_link in libs_dir.iterdir():
-                if not is_link(lib_link):
-                    continue
-                lib_dir = lib_link.resolve()
-                if lib_dir.is_dir():
-                    total_skills += len(link_skills(lib_dir, skills_dir))
-                    total_commands += len(link_commands(lib_dir, commands_dir))
-                    merged_keys = merge_permissions(lib_dir, settings_path)
+                    if not is_link(repo_dir):
+                        clone_or_pull(owner_dir.name, repo_dir.name)
+                    target_dir = repo_dir.resolve() if is_link(repo_dir) else repo_dir
+                    total_skills += len(link_skills(target_dir, skills_dir))
+                    total_commands += len(link_commands(target_dir, commands_dir))
+                    merged_keys = merge_permissions(target_dir, settings_path)
                     total_perms += len(merged_keys)
 
         if total_skills == 0 and total_commands == 0 and total_perms == 0:
-            print("No repos or libs installed")
+            print("No repos installed")
         else:
             print(f"Updated ({total_skills} skill(s), {total_commands} command(s), {total_perms} permission key(s))")
 
@@ -588,19 +505,15 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # list
-    subparsers.add_parser("list", help="list installed skills")
-
-    # save
-    p_save = subparsers.add_parser("save", help="save project permissions as reusable preset")
-    p_save.add_argument("name", help="preset name")
-    p_save.add_argument(
-        "--group", nargs="+", metavar="PRESET", help="save as a group of presets"
+    p_list = subparsers.add_parser("list", help="list installed skills")
+    p_list.add_argument(
+        "--prune", action="store_true", help="remove broken links"
     )
 
-    # apply
-    p_apply = subparsers.add_parser("apply", help="apply permission presets")
+    # allow
+    p_apply = subparsers.add_parser("allow", help="allow permission presets")
     p_apply.add_argument(
-        "presets", nargs="*", help="preset name(s) to apply (default: developer)"
+        "presets", nargs="*", help="preset name(s) to allow (default: developer)"
     )
 
     # add
@@ -628,8 +541,7 @@ def main() -> None:
 
     handlers = {
         "list": cmd_list,
-        "save": cmd_save,
-        "apply": cmd_apply,
+"allow": cmd_allow,
         "add": cmd_add,
         "update": cmd_update,
         "remove": cmd_remove,
