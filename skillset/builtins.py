@@ -26,5 +26,7 @@ PRESETS: dict[str, dict] = {
         "make", "cargo", "go",
         # aws (read-only)
         "aws logs", "aws cloudwatch", "aws events",
+        # browser automation
+        "playwright-cli",
     ),
 }

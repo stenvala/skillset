@@ -151,12 +151,14 @@ def remove_link(path: Path) -> None:
         path.unlink()
 
 
-def link_skills(repo_dir: Path, target_dir: Path) -> list[str]:
+def link_skills(repo_dir: Path, target_dir: Path, only: set[str] | None = None) -> list[str]:
     """Link skill directories from repo to target skills dir."""
     target_dir.mkdir(parents=True, exist_ok=True)
     linked = []
     for skill_dir in find_skills(repo_dir):
         skill_name = skill_dir.name
+        if only is not None and skill_name not in only:
+            continue
         link_path = target_dir / skill_name
         if is_link(link_path):
             remove_link(link_path)
@@ -168,12 +170,14 @@ def link_skills(repo_dir: Path, target_dir: Path) -> list[str]:
     return linked
 
 
-def link_commands(repo_dir: Path, target_dir: Path) -> list[str]:
+def link_commands(repo_dir: Path, target_dir: Path, only: set[str] | None = None) -> list[str]:
     """Link command files from repo to target commands dir."""
     target_dir.mkdir(parents=True, exist_ok=True)
     linked = []
     for cmd_file in find_commands(repo_dir):
         cmd_name = cmd_file.name
+        if only is not None and cmd_name not in only:
+            continue
         link_path = target_dir / cmd_name
         if link_path.is_symlink():
             link_path.unlink()
@@ -236,6 +240,13 @@ def get_preset(name: str) -> dict | None:
     return BUILTIN_PRESETS.get(name)
 
 
+def abbrev(path: str | Path) -> str:
+    """Replace home directory with ~ in a path string."""
+    s = str(path)
+    home = str(Path.home())
+    return s.replace(home, "~", 1) if s.startswith(home) else s
+
+
 # Command handlers
 
 
@@ -253,12 +264,6 @@ def cmd_list(args: argparse.Namespace) -> None:
     project_commands = (
         sorted(project_commands_dir.iterdir()) if project_commands_dir.exists() else []
     )
-
-    home = str(Path.home())
-
-    def abbrev(path: str | Path) -> str:
-        s = str(path)
-        return s.replace(home, "~", 1) if s.startswith(home) else s
 
     def print_grouped(items: list[Path], is_link_fn, label: str, install_dir: Path) -> None:
         if not items:
@@ -334,7 +339,7 @@ def cmd_allow(args: argparse.Namespace) -> None:
         total_perms += len(preset.get("permissions", {}).get("allow", []))
         applied.append(name)
     save_settings(settings_path, existing)
-    print(f"Applied {', '.join(applied)} ({total_perms} permissions) to {settings_path}")
+    print(f"Applied {', '.join(applied)} ({total_perms} permissions) to {abbrev(settings_path)}")
 
 
 def is_local_path(spec: str) -> bool:
@@ -352,6 +357,58 @@ def add_read_permission(settings_path: Path, target_path: Path) -> None:
         save_settings(settings_path, settings)
 
 
+def fzf_select_skills(skills: list[Path], repo_dir: Path, installed: set[str]) -> list[str]:
+    """Interactive skill selection with group drill-down. Marks installed skills with *."""
+    groups: dict[str, list[str]] = {}
+    for skill in skills:
+        group = skill.parent.name
+        groups.setdefault(group, []).append(skill.name)
+
+    def mark(name: str) -> str:
+        return f"* {name}" if name in installed else f"  {name}"
+
+    def unmark(item: str) -> str:
+        return item.lstrip("* ").strip()
+
+    def make_items(names: list[str]) -> list[str]:
+        return [mark(n) for n in sorted(names)]
+
+    if len(groups) <= 1:
+        items = make_items(next(iter(groups.values()))) if groups else []
+        selected = fzf_select(items, prompt="Skills> ")
+        return [unmark(s) for s in selected]
+
+    # Show default group flat, others as [group] entries
+    default = "skills" if "skills" in groups else sorted(groups)[0]
+    items = make_items(groups[default]) + sorted(f"[{g}]" for g in groups if g != default)
+    selected = fzf_select(items, prompt="Skills> ")
+
+    result = []
+    for item in selected:
+        if item.startswith("[") and item.endswith("]"):
+            group_name = item[1:-1]
+            sub = fzf_select(make_items(groups[group_name]), prompt=f"{group_name}> ")
+            result.extend(unmark(s) for s in sub)
+        else:
+            result.append(unmark(item))
+    return result
+
+
+def fzf_select(items: list[str], prompt: str = "Select> ") -> list[str]:
+    """Run fzf for multi-select; returns selected items."""
+    input_text = "\n".join(items)
+    result = subprocess.run(
+        ["fzf", "--multi", "--prompt", prompt, "--header", "Tab to select, Enter to confirm"],
+        input=input_text,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode not in (0, 1):
+        print("fzf not found or failed", file=sys.stderr)
+        sys.exit(1)
+    return [line for line in result.stdout.splitlines() if line]
+
+
 def register_local_lib(repo_dir: Path) -> None:
     """Register a local directory as a symlink under repos/local/ for tracking by update."""
     local_dir = get_cache_dir() / "local"
@@ -366,6 +423,26 @@ def register_local_lib(repo_dir: Path) -> None:
 
 def cmd_add(args: argparse.Namespace) -> None:
     """Add skills and permissions from a GitHub repo or local directory."""
+    if not args.repo:
+        if not args.interactive:
+            print("Provide a repo or use -i for interactive selection")
+            sys.exit(1)
+        cache_dir = get_cache_dir()
+        repos = []
+        if cache_dir.exists():
+            for owner_dir in sorted(cache_dir.iterdir()):
+                if owner_dir.is_dir():
+                    for repo_dir in sorted(owner_dir.iterdir()):
+                        if repo_dir.is_dir():
+                            repos.append(f"{owner_dir.name}/{repo_dir.name}")
+        if not repos:
+            print("No repos cached. Run 'skillset add owner/repo' first.")
+            sys.exit(1)
+        selected = fzf_select(repos, prompt="Repo> ")
+        if not selected:
+            return
+        args.repo = selected[0]
+
     if is_local_path(args.repo):
         repo_dir = Path(args.repo).expanduser().resolve()
         if not repo_dir.is_dir():
@@ -378,23 +455,44 @@ def cmd_add(args: argparse.Namespace) -> None:
         except ValueError as e:
             print(str(e))
             sys.exit(1)
-        repo_dir = clone_or_pull(owner, repo_name)
+        repo_dir = get_repo_dir(owner, repo_name)
+        if is_link(repo_dir):
+            repo_dir = repo_dir.resolve()
+        else:
+            repo_dir = clone_or_pull(owner, repo_name)
 
     # Link skills (global or project)
     skills_dir = get_global_skills_dir() if args.g else get_project_skills_dir()
-    linked_skills = link_skills(repo_dir, skills_dir)
+    if args.interactive:
+        available_skills = find_skills(repo_dir)
+        if available_skills:
+            installed = {p.name for p in skills_dir.iterdir() if is_link(p)} if skills_dir.exists() else set()
+            selected = fzf_select_skills(available_skills, repo_dir, installed)
+            linked_skills = link_skills(repo_dir, skills_dir, only=set(selected))
+        else:
+            linked_skills = []
+    else:
+        linked_skills = link_skills(repo_dir, skills_dir)
 
     if linked_skills:
-        print(f"Linked {len(linked_skills)} skill(s) to {skills_dir}:")
+        print(f"Linked {len(linked_skills)} skill(s) to {abbrev(skills_dir)}:")
         for skill_name in sorted(linked_skills):
             print(f"  - {skill_name}")
 
     # Link commands (global or project)
     commands_dir = get_global_commands_dir() if args.g else get_project_commands_dir()
-    linked_commands = link_commands(repo_dir, commands_dir)
+    if args.interactive:
+        available_commands = find_commands(repo_dir)
+        if available_commands:
+            selected = fzf_select(sorted(c.name for c in available_commands), prompt="Commands> ")
+            linked_commands = link_commands(repo_dir, commands_dir, only=set(selected))
+        else:
+            linked_commands = []
+    else:
+        linked_commands = link_commands(repo_dir, commands_dir)
 
     if linked_commands:
-        print(f"Linked {len(linked_commands)} command(s) to {commands_dir}:")
+        print(f"Linked {len(linked_commands)} command(s) to {abbrev(commands_dir)}:")
         for cmd_name in sorted(linked_commands):
             print(f"  - {cmd_name}")
 
@@ -402,14 +500,14 @@ def cmd_add(args: argparse.Namespace) -> None:
     if linked_skills or linked_commands:
         settings_path = get_global_settings_path() if args.g else get_project_settings_path()
         add_read_permission(settings_path, repo_dir)
-        print(f"Added Read permission for {repo_dir}")
+        print(f"Added Read permission for {abbrev(repo_dir)}")
 
     # Merge permissions (always project)
     settings_path = get_project_settings_path()
     merged_keys = merge_permissions(repo_dir, settings_path)
 
     if merged_keys:
-        print(f"Merged permissions into {settings_path}:")
+        print(f"Merged permissions into {abbrev(settings_path)}:")
         for key in sorted(merged_keys):
             print(f"  - {key}")
 
@@ -418,17 +516,34 @@ def cmd_add(args: argparse.Namespace) -> None:
 
 
 def cmd_remove(args: argparse.Namespace) -> None:
-    """Remove a skill by name."""
+    """Remove a skill by name, or interactively select skills to remove."""
     skills_dir = get_global_skills_dir() if args.g else get_project_skills_dir()
+
+    if args.interactive:
+        installed = sorted(p.name for p in skills_dir.iterdir() if is_link(p)) if skills_dir.exists() else []
+        if not installed:
+            print(f"No linked skills in {abbrev(skills_dir)}")
+            return
+        scope = "global" if args.g else "project"
+        selected = fzf_select(installed, prompt=f"Remove {scope} skills> ")
+        for name in selected:
+            remove_link(skills_dir / name)
+            print(f"Removed {name} from {abbrev(skills_dir)}")
+        return
+
+    if not args.name:
+        print("Provide a skill name or use -i for interactive selection")
+        sys.exit(1)
+
     skill_path = skills_dir / args.name
 
     if not skill_path.exists():
-        print(f"Skill '{args.name}' not found in {skills_dir}")
+        print(f"Skill '{args.name}' not found in {abbrev(skills_dir)}")
         sys.exit(1)
 
     if is_link(skill_path):
         remove_link(skill_path)
-        print(f"Removed {args.name} from {skills_dir}")
+        print(f"Removed {args.name} from {abbrev(skills_dir)}")
     else:
         print(f"'{args.name}' is not a symlink - remove manually if intended")
         sys.exit(1)
@@ -518,9 +633,12 @@ def main() -> None:
 
     # add
     p_add = subparsers.add_parser("add", help="add skills from a GitHub repo")
-    p_add.add_argument("repo", help="repo in owner/repo format")
+    p_add.add_argument("repo", nargs="?", help="repo in owner/repo format")
     p_add.add_argument(
         "-g", "--global", dest="g", action="store_true", help="install skills globally"
+    )
+    p_add.add_argument(
+        "-i", "--interactive", action="store_true", help="select skills interactively with fzf"
     )
 
     # update
@@ -532,9 +650,12 @@ def main() -> None:
 
     # remove
     p_remove = subparsers.add_parser("remove", help="remove a skill by name")
-    p_remove.add_argument("name", help="skill name to remove")
+    p_remove.add_argument("name", nargs="?", help="skill name to remove")
     p_remove.add_argument(
         "-g", "--global", dest="g", action="store_true", help="remove from global skills"
+    )
+    p_remove.add_argument(
+        "-i", "--interactive", action="store_true", help="select skills to remove with fzf"
     )
 
     args = parser.parse_args()
