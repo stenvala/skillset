@@ -462,7 +462,7 @@ def cmd_add(args: argparse.Namespace) -> None:
             repo_dir = clone_or_pull(owner, repo_name)
 
     # Link skills (global or project)
-    skills_dir = get_global_skills_dir() if args.g else get_project_skills_dir()
+    skills_dir = get_project_skills_dir() if args.local else get_global_skills_dir()
     if args.interactive:
         available_skills = find_skills(repo_dir)
         if available_skills:
@@ -480,7 +480,7 @@ def cmd_add(args: argparse.Namespace) -> None:
             print(f"  - {skill_name}")
 
     # Link commands (global or project)
-    commands_dir = get_global_commands_dir() if args.g else get_project_commands_dir()
+    commands_dir = get_project_commands_dir() if args.local else get_global_commands_dir()
     if args.interactive:
         available_commands = find_commands(repo_dir)
         if available_commands:
@@ -498,7 +498,7 @@ def cmd_add(args: argparse.Namespace) -> None:
 
     # Add read permission for source directory if we linked anything
     if linked_skills or linked_commands:
-        settings_path = get_global_settings_path() if args.g else get_project_settings_path()
+        settings_path = get_project_settings_path() if args.local else get_global_settings_path()
         add_read_permission(settings_path, repo_dir)
         print(f"Added Read permission for {abbrev(repo_dir)}")
 
@@ -517,14 +517,14 @@ def cmd_add(args: argparse.Namespace) -> None:
 
 def cmd_remove(args: argparse.Namespace) -> None:
     """Remove a skill by name, or interactively select skills to remove."""
-    skills_dir = get_global_skills_dir() if args.g else get_project_skills_dir()
+    skills_dir = get_project_skills_dir() if args.local else get_global_skills_dir()
 
     if args.interactive:
         installed = sorted(p.name for p in skills_dir.iterdir() if is_link(p)) if skills_dir.exists() else []
         if not installed:
             print(f"No linked skills in {abbrev(skills_dir)}")
             return
-        scope = "global" if args.g else "project"
+        scope = "project" if args.local else "global"
         selected = fzf_select(installed, prompt=f"Remove {scope} skills> ")
         for name in selected:
             remove_link(skills_dir / name)
@@ -635,7 +635,7 @@ def main() -> None:
     p_add = subparsers.add_parser("add", help="add skills from a GitHub repo")
     p_add.add_argument("repo", nargs="?", help="repo in owner/repo format")
     p_add.add_argument(
-        "-g", "--global", dest="g", action="store_true", help="install skills globally"
+        "-l", "--local", dest="local", action="store_true", help="install skills in project scope"
     )
     p_add.add_argument(
         "-i", "--interactive", action="store_true", help="select skills interactively with fzf"
@@ -652,7 +652,7 @@ def main() -> None:
     p_remove = subparsers.add_parser("remove", help="remove a skill by name")
     p_remove.add_argument("name", nargs="?", help="skill name to remove")
     p_remove.add_argument(
-        "-g", "--global", dest="g", action="store_true", help="remove from global skills"
+        "-l", "--local", dest="local", action="store_true", help="remove from project skills"
     )
     p_remove.add_argument(
         "-i", "--interactive", action="store_true", help="select skills to remove with fzf"
