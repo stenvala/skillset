@@ -58,6 +58,20 @@ def parse_repo_spec(spec: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
+def parse_github_url(url: str) -> tuple[str, str, str | None, str | None] | None:
+    """Parse a GitHub tree URL into (owner, repo, branch, subpath) or None.
+
+    Handles:
+      https://github.com/owner/repo
+      https://github.com/owner/repo/tree/branch/path/to/subdir
+    """
+    import re
+    m = re.match(r'https?://github\.com/([^/]+)/([^/]+)(?:/tree/([^/]+)(?:/(.+))?)?/?$', url)
+    if not m:
+        return None
+    return m.group(1), m.group(2).removesuffix(".git"), m.group(3), m.group(4)
+
+
 def get_repo_dir(owner: str, repo: str) -> Path:
     """Get the cache directory for a repo."""
     return get_cache_dir() / owner / repo
@@ -309,7 +323,11 @@ def cmd_list(args: argparse.Namespace) -> None:
     if repos:
         print(f"Repos ({abbrev(cache_dir)}):")
         for repo in repos:
-            print(f"  {repo}")
+            repo_path = cache_dir / repo.replace("/", os.sep)
+            if is_link(repo_path):
+                print(f"  {repo} -> {abbrev(repo_path.resolve())}")
+            else:
+                print(f"  {repo}")
 
     if (
         not global_skills
@@ -344,7 +362,7 @@ def cmd_allow(args: argparse.Namespace) -> None:
 
 def is_local_path(spec: str) -> bool:
     """Check if spec looks like a local path rather than owner/repo."""
-    return spec.startswith(("/", ".", "~"))
+    return spec.startswith(("/", ".", "~")) or Path(spec).expanduser().is_dir()
 
 
 def add_read_permission(settings_path: Path, target_path: Path) -> None:
@@ -443,7 +461,19 @@ def cmd_add(args: argparse.Namespace) -> None:
             return
         args.repo = selected[0]
 
-    if is_local_path(args.repo):
+    subpath = None
+    if args.repo and "://" in args.repo:
+        github_info = parse_github_url(args.repo)
+        if not github_info:
+            print(f"Invalid GitHub URL: {args.repo}")
+            sys.exit(1)
+        owner, repo_name, _branch, subpath = github_info
+        repo_dir = get_repo_dir(owner, repo_name)
+        if is_link(repo_dir):
+            repo_dir = repo_dir.resolve()
+        else:
+            repo_dir = clone_or_pull(owner, repo_name)
+    elif is_local_path(args.repo):
         repo_dir = Path(args.repo).expanduser().resolve()
         if not repo_dir.is_dir():
             print(f"Directory not found: {repo_dir}")
@@ -461,18 +491,23 @@ def cmd_add(args: argparse.Namespace) -> None:
         else:
             repo_dir = clone_or_pull(owner, repo_name)
 
+    source_dir = repo_dir / subpath if subpath else repo_dir
+    if subpath and not source_dir.is_dir():
+        print(f"Path not found in repo: {subpath}")
+        sys.exit(1)
+
     # Link skills (global or project)
     skills_dir = get_project_skills_dir() if args.local else get_global_skills_dir()
     if args.interactive:
-        available_skills = find_skills(repo_dir)
+        available_skills = find_skills(source_dir)
         if available_skills:
             installed = {p.name for p in skills_dir.iterdir() if is_link(p)} if skills_dir.exists() else set()
-            selected = fzf_select_skills(available_skills, repo_dir, installed)
-            linked_skills = link_skills(repo_dir, skills_dir, only=set(selected))
+            selected = fzf_select_skills(available_skills, source_dir, installed)
+            linked_skills = link_skills(source_dir, skills_dir, only=set(selected))
         else:
             linked_skills = []
     else:
-        linked_skills = link_skills(repo_dir, skills_dir)
+        linked_skills = link_skills(source_dir, skills_dir)
 
     if linked_skills:
         print(f"Linked {len(linked_skills)} skill(s) to {abbrev(skills_dir)}:")
@@ -482,14 +517,14 @@ def cmd_add(args: argparse.Namespace) -> None:
     # Link commands (global or project)
     commands_dir = get_project_commands_dir() if args.local else get_global_commands_dir()
     if args.interactive:
-        available_commands = find_commands(repo_dir)
+        available_commands = find_commands(source_dir)
         if available_commands:
             selected = fzf_select(sorted(c.name for c in available_commands), prompt="Commands> ")
-            linked_commands = link_commands(repo_dir, commands_dir, only=set(selected))
+            linked_commands = link_commands(source_dir, commands_dir, only=set(selected))
         else:
             linked_commands = []
     else:
-        linked_commands = link_commands(repo_dir, commands_dir)
+        linked_commands = link_commands(source_dir, commands_dir)
 
     if linked_commands:
         print(f"Linked {len(linked_commands)} command(s) to {abbrev(commands_dir)}:")
