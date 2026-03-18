@@ -16,34 +16,36 @@ pip install skillset
 
 ## Usage
 
-### Apply permissions
+### Allow permission presets
 
 ```bash
-skillset apply              # auto-detect project type (git, python, node, etc.)
-skillset apply python git   # apply specific presets
-skillset apply --dry-run    # preview what would be applied
+skillset allow              # apply developer preset (default)
+skillset allow python git   # apply specific presets
 ```
 
 Built-in presets: `developer`, `git`, `node`, `python`, `docker`, `k8s`
 
-### Save and reuse permissions
-
-```bash
-skillset save mypreset      # save current project permissions
-skillset apply mypreset     # apply in another project
-```
-
 ### Add skills from GitHub
 
 ```bash
-skillset add owner/repo     # add to project .claude/skills/
-skillset add owner/repo -g  # add to global ~/.claude/skills/
+skillset add owner/repo         # add to global ~/.claude/skills/
+skillset add owner/repo --local # add to project .claude/skills/
+skillset add --interactive      # select skills with fzf
 ```
 
-### List installed skills and presets
+### Remove skills
 
 ```bash
-skillset list
+skillset remove skill-name          # remove from global skills
+skillset remove skill-name --local  # remove from project skills
+skillset remove --interactive       # select skills to remove with fzf
+```
+
+### List installed skills
+
+```bash
+skillset list           # list all installed skills
+skillset list --prune   # list and remove broken links
 ```
 
 ### Update cached repos
@@ -53,12 +55,30 @@ skillset update             # pull all cached repos
 skillset update owner/repo  # update specific repo
 ```
 
+### Prerequisites
+
+`fzf` is required for `--interactive` mode (`skillset add -i`, `skillset remove -i`).
+
 ## How it works
 
 - Permissions are written to `.claude/settings.local.json` (project-local, not committed)
 - Skills are symlinked (Linux/Mac) or junctioned (Windows) from cached repos
-- User presets stored in `~/.config/skillset/presets/`
 - Repo cache in `~/.cache/skillset/repos/`
+
+## Comparison with Vercel's `npx skills`
+
+Vercel's [`skills`](https://github.com/vercel-labs/skills) CLI is a cross-agent package manager with a central registry at [skills.sh](https://skills.sh). Both tools manage SKILL.md-based skills from GitHub repos, but they differ in scope and focus.
+
+| | **skillset** | **Vercel `npx skills`** |
+|---|---|---|
+| Target agents | Claude Code | 40+ (Claude, Cursor, Codex, Copilot…) |
+| Permission management | Yes — presets, `settings.local.json` | No |
+| Slash commands | Links `/commands` from repos | No |
+| Skill discovery | Browse repos with fzf | Central registry (89K+ skills) |
+| Install method | `pip` / `uv tool install` / `uvx` | `npx` |
+| Scope default | Global | Project |
+
+**skillset** is a Claude Code power-user tool that manages both skills and permissions. Vercel's CLI is a cross-agent marketplace with no permission management. The two are complementary — discover skills via Vercel's registry, install them with proper permissions via skillset.
 
 ## License
 
