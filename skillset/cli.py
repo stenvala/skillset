@@ -498,6 +498,7 @@ def cmd_add(args: argparse.Namespace) -> None:
 
     # Link skills (global or project)
     skills_dir = get_project_skills_dir() if args.local else get_global_skills_dir()
+    skill_filter = set(args.skills) if getattr(args, "skills", None) else None
     if args.interactive:
         available_skills = find_skills(source_dir)
         if available_skills:
@@ -507,7 +508,7 @@ def cmd_add(args: argparse.Namespace) -> None:
         else:
             linked_skills = []
     else:
-        linked_skills = link_skills(source_dir, skills_dir)
+        linked_skills = link_skills(source_dir, skills_dir, only=skill_filter)
 
     if linked_skills:
         print(f"Linked {len(linked_skills)} skill(s) to {abbrev(skills_dir)}:")
@@ -612,19 +613,11 @@ def cmd_update(args: argparse.Namespace) -> None:
         linked_commands = link_commands(repo_dir, commands_dir)
 
         print(f"Updated {len(linked_skills)} skill(s), {len(linked_commands)} command(s)")
-
-        # Refresh permissions (always project)
-        settings_path = get_project_settings_path()
-        merged_keys = merge_permissions(repo_dir, settings_path)
-        if merged_keys:
-            print(f"Refreshed {len(merged_keys)} permission key(s)")
     else:
         skills_dir = get_global_skills_dir() if args.g else get_project_skills_dir()
         commands_dir = get_global_commands_dir() if args.g else get_project_commands_dir()
-        settings_path = get_project_settings_path()
         total_skills = 0
         total_commands = 0
-        total_perms = 0
 
         if cache_dir.exists():
             for owner_dir in cache_dir.iterdir():
@@ -638,13 +631,11 @@ def cmd_update(args: argparse.Namespace) -> None:
                     target_dir = repo_dir.resolve() if is_link(repo_dir) else repo_dir
                     total_skills += len(link_skills(target_dir, skills_dir))
                     total_commands += len(link_commands(target_dir, commands_dir))
-                    merged_keys = merge_permissions(target_dir, settings_path)
-                    total_perms += len(merged_keys)
 
-        if total_skills == 0 and total_commands == 0 and total_perms == 0:
+        if total_skills == 0 and total_commands == 0:
             print("No repos installed")
         else:
-            print(f"Updated ({total_skills} skill(s), {total_commands} command(s), {total_perms} permission key(s))")
+            print(f"Updated ({total_skills} skill(s), {total_commands} command(s))")
 
 
 def main() -> None:
@@ -674,6 +665,10 @@ def main() -> None:
     )
     p_add.add_argument(
         "-i", "--interactive", action="store_true", help="select skills interactively with fzf"
+    )
+    p_add.add_argument(
+        "-s", "--skill", dest="skills", metavar="SKILL", action="append",
+        help="add only this skill by name (can be repeated)"
     )
 
     # update
