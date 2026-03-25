@@ -33,6 +33,15 @@ skillset add owner/repo --local # add to project .claude/skills/
 skillset add --interactive      # select skills with fzf
 ```
 
+### Try skills temporarily
+
+```bash
+skillset add --try owner/repo    # install as trial
+skillset list                    # trial skills shown with (trial) tag
+skillset clean                   # remove all trial skills and their cached repos
+skillset add owner/repo          # re-add without --try to keep permanently
+```
+
 ### Remove skills
 
 ```bash

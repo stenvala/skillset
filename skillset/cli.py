@@ -2,6 +2,7 @@
 
 import argparse
 import difflib
+import fnmatch
 import json
 import os
 import shutil
@@ -123,13 +124,14 @@ def save_manifest(manifest: dict) -> None:
     path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
-def record_install(repo_key: str, *, subpath: str | None = None, copy: bool = False, scope: str = "global") -> None:
+def record_install(repo_key: str, *, subpath: str | None = None, copy: bool = False, scope: str = "global", trial: bool = False) -> None:
     """Record install options for a repo in the manifest."""
     manifest = load_manifest()
     manifest[repo_key] = {
         "subpath": subpath,
         "copy": copy,
         "scope": scope,
+        "trial": trial,
     }
     save_manifest(manifest)
 
@@ -304,11 +306,18 @@ def link_skills(repo_dir: Path, target_dir: Path, only: set[str] | None = None, 
     available = find_skills(repo_dir)
     available_names = [s.name for s in available]
 
-    # Check requested names against available skills, suggest on typos
+    # Resolve requested names: expand glob patterns, fuzzy-match typos
     if only is not None:
         verified = set()
         for name in only:
-            if name in available_names:
+            if any(c in name for c in "*?["):
+                # Glob pattern — expand against available names
+                matched = fnmatch.filter(available_names, name)
+                if matched:
+                    verified.update(matched)
+                else:
+                    print(f"  Pattern '{name}' matched no skills")
+            elif name in available_names:
                 verified.add(name)
             else:
                 suggestion = fuzzy_match(name, available_names)
@@ -442,6 +451,25 @@ def cmd_list(args: argparse.Namespace) -> None:
     else:
         project_commands = []
 
+    # Build set of trial repo keys for tagging
+    manifest = load_manifest()
+    trial_repos = {k for k, v in manifest.items() if v.get("trial")}
+
+    def _is_trial_skill(item: Path) -> bool:
+        """Check if a skill belongs to a trial repo."""
+        if is_managed_copy(item):
+            source = get_copy_source(item) or ""
+        elif is_link(item):
+            resolved = item.resolve()
+            source = str(resolved.parent)
+        else:
+            return False
+        # Match against trial repo keys (which may be owner/repo or absolute paths)
+        for key in trial_repos:
+            if key in source or abbrev(key) in abbrev(source):
+                return True
+        return False
+
     def print_grouped(items: list[Path], is_link_fn, label: str, install_dir: Path) -> None:
         if not items:
             return
@@ -461,7 +489,8 @@ def cmd_list(args: argparse.Namespace) -> None:
                     target_dir = abbrev(resolved.parent)
             else:
                 target_dir = "(manual)"
-            groups.setdefault(target_dir, []).append(item.name)
+            trial_tag = " (trial)" if _is_trial_skill(item) else ""
+            groups.setdefault(target_dir, []).append(item.name + trial_tag)
         for target_dir, names in sorted(groups.items()):
             print(f"  {target_dir}:")
             for name in sorted(names):
@@ -754,6 +783,7 @@ def cmd_add(args: argparse.Namespace) -> None:
             subpath=subpath,
             copy=use_copy,
             scope="local" if args.local else "global",
+            trial=getattr(args, "trial", False),
         )
 
     if not linked_skills and not linked_commands and not merged_keys:
@@ -875,6 +905,64 @@ def cmd_update(args: argparse.Namespace) -> None:
             print(f"Updated ({total_skills} skill(s), {total_commands} command(s))")
 
 
+def cmd_clean(args: argparse.Namespace) -> None:
+    """Remove all trial skills."""
+    manifest = load_manifest()
+    trial_repos = {k: v for k, v in manifest.items() if v.get("trial")}
+
+    if not trial_repos:
+        print("No trial skills to clean")
+        return
+
+    removed = 0
+    for repo_key, opts in trial_repos.items():
+        scope = opts.get("scope", "global")
+        if scope == "local":
+            skills_dir = get_project_skills_dir()
+            if skills_dir is None:
+                print(f"  Skipping {repo_key} (local scope, not in a git repo)")
+                continue
+        else:
+            skills_dir = get_global_skills_dir()
+
+        if skills_dir.exists():
+            for item in sorted(skills_dir.iterdir()):
+                if not is_managed(item):
+                    continue
+                # Check if this skill points back to the trial repo
+                if is_managed_copy(item):
+                    source = get_copy_source(item) or ""
+                elif is_link(item):
+                    source = str(item.resolve())
+                else:
+                    continue
+                if repo_key in source or abbrev(repo_key) in abbrev(source):
+                    remove_managed(item)
+                    print(f"  Removed {item.name}")
+                    removed += 1
+
+        # Remove from manifest
+        del manifest[repo_key]
+
+        # Remove cached repo if no other manifest entries reference it
+        remaining_keys = set(manifest.keys())
+        # repo_key is like "owner/repo" or an absolute path
+        repo_dir = get_cache_dir() / repo_key.replace("/", os.sep)
+        if repo_dir.exists() and not any(k.startswith(repo_key) for k in remaining_keys):
+            if is_link(repo_dir):
+                remove_link(repo_dir)
+            else:
+                shutil.rmtree(repo_dir)
+            # Clean up empty parent dirs
+            parent = repo_dir.parent
+            if parent.exists() and not any(parent.iterdir()):
+                parent.rmdir()
+            print(f"  Removed cached repo {repo_key}")
+
+    save_manifest(manifest)
+    print(f"Cleaned {removed} trial skill(s) from {len(trial_repos)} repo(s)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="skillset",
@@ -919,6 +1007,10 @@ def main() -> None:
         "--no-cache", dest="no_cache", action="store_true",
         help="clone to a temp dir, copy skills, then clean up (no persistent repo cache)"
     )
+    p_add.add_argument(
+        "--try", dest="trial", action="store_true",
+        help="install skills on a trial basis (remove later with 'skillset clean')"
+    )
 
     # update
     p_update = subparsers.add_parser("update", help="update repo(s) and refresh links")
@@ -930,6 +1022,9 @@ def main() -> None:
         "--copy", action="store_true",
         help="copy files instead of symlinking (for Windows without admin)"
     )
+
+    # clean
+    subparsers.add_parser("clean", help="remove all trial skills")
 
     # remove
     p_remove = subparsers.add_parser("remove", help="remove a skill by name")
@@ -948,6 +1043,7 @@ def main() -> None:
 "allow": cmd_allow,
         "add": cmd_add,
         "update": cmd_update,
+        "clean": cmd_clean,
         "remove": cmd_remove,
     }
     handlers[args.command](args)
