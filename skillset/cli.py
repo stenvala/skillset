@@ -1,10 +1,13 @@
 """CLI for managing AI skills and permissions across projects."""
 
 import argparse
+import difflib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from skillset.builtins import PRESETS as BUILTIN_PRESETS
@@ -25,9 +28,22 @@ def get_global_skills_dir() -> Path:
     return Path.home() / ".claude" / "skills"
 
 
-def get_project_skills_dir() -> Path:
-    """Get project-local Claude skills directory."""
-    return Path.cwd() / ".claude" / "skills"
+def get_git_root() -> Path | None:
+    """Get the root of the current git repository, or None if not in one."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        )
+        return Path(result.stdout.strip())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def get_project_skills_dir() -> Path | None:
+    """Get project-local Claude skills directory, or None if not in a git repo."""
+    root = get_git_root()
+    return root / ".claude" / "skills" if root else None
 
 
 def get_global_commands_dir() -> Path:
@@ -35,9 +51,10 @@ def get_global_commands_dir() -> Path:
     return Path.home() / ".claude" / "commands"
 
 
-def get_project_commands_dir() -> Path:
-    """Get project-local Claude commands directory."""
-    return Path.cwd() / ".claude" / "commands"
+def get_project_commands_dir() -> Path | None:
+    """Get project-local Claude commands directory, or None if not in a git repo."""
+    root = get_git_root()
+    return root / ".claude" / "commands" if root else None
 
 
 def get_global_settings_path() -> Path:
@@ -45,9 +62,18 @@ def get_global_settings_path() -> Path:
     return Path.home() / ".claude" / "settings.local.json"
 
 
-def get_project_settings_path() -> Path:
-    """Get project-local Claude settings.local path (user preferences)."""
-    return Path.cwd() / ".claude" / "settings.local.json"
+def get_project_settings_path() -> Path | None:
+    """Get project-local Claude settings.local path, or None if not in a git repo."""
+    root = get_git_root()
+    return root / ".claude" / "settings.local.json" if root else None
+
+
+def require_project_dir(path: Path | None, kind: str = "project") -> Path:
+    """Return path if set, or exit with error if not in a git repo."""
+    if path is None:
+        print(f"Not in a git repository — cannot use {kind} scope")
+        sys.exit(1)
+    return path
 
 
 def parse_repo_spec(spec: str) -> tuple[str, str]:
@@ -77,6 +103,42 @@ def get_repo_dir(owner: str, repo: str) -> Path:
     return get_cache_dir() / owner / repo
 
 
+def get_manifest_path() -> Path:
+    """Get the path to the install manifest."""
+    return get_cache_dir() / "manifest.json"
+
+
+def load_manifest() -> dict:
+    """Load the install manifest (tracks per-repo install options)."""
+    path = get_manifest_path()
+    if path.exists():
+        return json.loads(path.read_text())
+    return {}
+
+
+def save_manifest(manifest: dict) -> None:
+    """Save the install manifest."""
+    path = get_manifest_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+def record_install(repo_key: str, *, subpath: str | None = None, copy: bool = False, scope: str = "global") -> None:
+    """Record install options for a repo in the manifest."""
+    manifest = load_manifest()
+    manifest[repo_key] = {
+        "subpath": subpath,
+        "copy": copy,
+        "scope": scope,
+    }
+    save_manifest(manifest)
+
+
+def get_install_options(repo_key: str) -> dict | None:
+    """Get saved install options for a repo."""
+    return load_manifest().get(repo_key)
+
+
 def clone_or_pull(owner: str, repo: str) -> Path:
     """Clone repo if not exists, or pull if it does. Returns repo path."""
     repo_dir = get_repo_dir(owner, repo)
@@ -104,6 +166,32 @@ def clone_or_pull(owner: str, repo: str) -> Path:
             else:
                 raise
 
+    return repo_dir
+
+
+def clone_to_temp(owner: str, repo: str) -> Path:
+    """Clone repo to a temp directory (caller must clean up). Returns repo path."""
+    tmp_dir = Path(tempfile.mkdtemp(prefix="skillset-"))
+    repo_dir = tmp_dir / repo
+    https_url = f"https://github.com/{owner}/{repo}.git"
+    ssh_url = f"git@github.com:{owner}/{repo}.git"
+
+    print(f"Cloning {owner}/{repo} (no-cache)...")
+    try:
+        subprocess.run(
+            ["git", "clone", "--depth", "1", https_url, str(repo_dir)],
+            check=True, capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode() if e.stderr else ""
+        if "Authentication failed" in stderr or e.returncode == 128:
+            print(f"HTTPS failed, trying SSH...")
+            subprocess.run(
+                ["git", "clone", "--depth", "1", ssh_url, str(repo_dir)],
+                check=True, capture_output=True,
+            )
+        else:
+            raise
     return repo_dir
 
 
@@ -165,27 +253,92 @@ def remove_link(path: Path) -> None:
         path.unlink()
 
 
-def link_skills(repo_dir: Path, target_dir: Path, only: set[str] | None = None) -> list[str]:
-    """Link skill directories from repo to target skills dir."""
+SKILLSET_SOURCE_MARKER = ".skillset-source"
+
+
+def fuzzy_match(name: str, candidates: list[str], cutoff: float = 0.6) -> str | None:
+    """Find the best fuzzy match for name among candidates."""
+    matches = difflib.get_close_matches(name, candidates, n=1, cutoff=cutoff)
+    return matches[0] if matches else None
+
+
+def is_managed_copy(path: Path) -> bool:
+    """Check if path is a skillset-managed copy (has marker file)."""
+    return path.is_dir() and (path / SKILLSET_SOURCE_MARKER).is_file()
+
+
+def get_copy_source(path: Path) -> str | None:
+    """Get the source path from a managed copy's marker file."""
+    marker = path / SKILLSET_SOURCE_MARKER
+    if marker.is_file():
+        return marker.read_text().strip()
+    return None
+
+
+def is_managed(path: Path) -> bool:
+    """Check if path is managed by skillset (link or copy)."""
+    return is_link(path) or is_managed_copy(path)
+
+
+def remove_managed(path: Path) -> None:
+    """Remove a managed skill (link or copy)."""
+    if is_link(path):
+        remove_link(path)
+    elif is_managed_copy(path):
+        shutil.rmtree(path)
+    else:
+        raise ValueError(f"Not a managed path: {path}")
+
+
+def copy_dir(src: Path, dst: Path, source_label: str | None = None) -> None:
+    """Copy a directory and write a marker file recording the source."""
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    (dst / SKILLSET_SOURCE_MARKER).write_text((source_label or str(src)) + "\n")
+
+
+def link_skills(repo_dir: Path, target_dir: Path, only: set[str] | None = None, copy: bool = False, source_label: str | None = None) -> list[str]:
+    """Link (or copy) skill directories from repo to target skills dir."""
     target_dir.mkdir(parents=True, exist_ok=True)
+    available = find_skills(repo_dir)
+    available_names = [s.name for s in available]
+
+    # Check requested names against available skills, suggest on typos
+    if only is not None:
+        verified = set()
+        for name in only:
+            if name in available_names:
+                verified.add(name)
+            else:
+                suggestion = fuzzy_match(name, available_names)
+                if suggestion:
+                    print(f"  Skill '{name}' not found. Did you mean '{suggestion}'?")
+                else:
+                    print(f"  Skill '{name}' not found (no close match)")
+        only = verified
+
     linked = []
-    for skill_dir in find_skills(repo_dir):
+    for skill_dir in available:
         skill_name = skill_dir.name
         if only is not None and skill_name not in only:
             continue
         link_path = target_dir / skill_name
-        if is_link(link_path):
-            remove_link(link_path)
+        if is_managed(link_path):
+            remove_managed(link_path)
         elif link_path.exists():
-            print(f"  Skipping {skill_name}: already exists (not a link)")
+            print(f"  Skipping {skill_name}: already exists (not managed by skillset)")
             continue
-        create_dir_link(link_path, skill_dir)
+        if copy:
+            copy_dir(skill_dir, link_path, source_label=source_label)
+        else:
+            create_dir_link(link_path, skill_dir)
         linked.append(skill_name)
     return linked
 
 
-def link_commands(repo_dir: Path, target_dir: Path, only: set[str] | None = None) -> list[str]:
-    """Link command files from repo to target commands dir."""
+def link_commands(repo_dir: Path, target_dir: Path, only: set[str] | None = None, copy: bool = False) -> list[str]:
+    """Link (or copy) command files from repo to target commands dir."""
     target_dir.mkdir(parents=True, exist_ok=True)
     linked = []
     for cmd_file in find_commands(repo_dir):
@@ -196,9 +349,15 @@ def link_commands(repo_dir: Path, target_dir: Path, only: set[str] | None = None
         if link_path.is_symlink():
             link_path.unlink()
         elif link_path.exists():
-            print(f"  Skipping {cmd_name}: already exists (not a link)")
-            continue
-        link_path.symlink_to(cmd_file)
+            if copy:
+                link_path.unlink()
+            else:
+                print(f"  Skipping {cmd_name}: already exists (not a link)")
+                continue
+        if copy:
+            shutil.copy2(cmd_file, link_path)
+        else:
+            link_path.symlink_to(cmd_file)
         linked.append(cmd_name)
     return linked
 
@@ -273,11 +432,15 @@ def cmd_list(args: argparse.Namespace) -> None:
     project_commands_dir = get_project_commands_dir()
 
     global_skills = sorted(global_skills_dir.iterdir()) if global_skills_dir.exists() else []
-    project_skills = sorted(project_skills_dir.iterdir()) if project_skills_dir.exists() else []
+    if project_skills_dir and project_skills_dir.exists():
+        project_skills = sorted(project_skills_dir.iterdir())
+    else:
+        project_skills = []
     global_commands = sorted(global_commands_dir.iterdir()) if global_commands_dir.exists() else []
-    project_commands = (
-        sorted(project_commands_dir.iterdir()) if project_commands_dir.exists() else []
-    )
+    if project_commands_dir and project_commands_dir.exists():
+        project_commands = sorted(project_commands_dir.iterdir())
+    else:
+        project_commands = []
 
     def print_grouped(items: list[Path], is_link_fn, label: str, install_dir: Path) -> None:
         if not items:
@@ -287,13 +450,17 @@ def cmd_list(args: argparse.Namespace) -> None:
         broken: list[Path] = []
         for item in items:
             if is_link_fn(item):
-                resolved = item.resolve()
-                if not resolved.exists():
-                    broken.append(item)
-                    continue
-                target_dir = abbrev(resolved.parent)
+                if is_managed_copy(item):
+                    source = get_copy_source(item)
+                    target_dir = abbrev(source) if source else "(copied)"
+                else:
+                    resolved = item.resolve()
+                    if not resolved.exists():
+                        broken.append(item)
+                        continue
+                    target_dir = abbrev(resolved.parent)
             else:
-                target_dir = "(local)"
+                target_dir = "(manual)"
             groups.setdefault(target_dir, []).append(item.name)
         for target_dir, names in sorted(groups.items()):
             print(f"  {target_dir}:")
@@ -306,10 +473,12 @@ def cmd_list(args: argparse.Namespace) -> None:
             else:
                 print(f"  [broken link: {item.name}]")
 
-    print_grouped(global_skills, is_link, "Global skills", global_skills_dir)
-    print_grouped(project_skills, is_link, "Project skills", project_skills_dir)
+    print_grouped(global_skills, is_managed, "Global skills", global_skills_dir)
+    if project_skills_dir:
+        print_grouped(project_skills, is_managed, "Project skills", project_skills_dir)
     print_grouped(global_commands, lambda p: p.is_symlink(), "Global commands", global_commands_dir)
-    print_grouped(project_commands, lambda p: p.is_symlink(), "Project commands", project_commands_dir)
+    if project_commands_dir:
+        print_grouped(project_commands, lambda p: p.is_symlink(), "Project commands", project_commands_dir)
 
     # List registered repos
     cache_dir = get_cache_dir()
@@ -342,7 +511,7 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 def cmd_allow(args: argparse.Namespace) -> None:
     """Apply permission presets."""
-    settings_path = get_project_settings_path()
+    settings_path = require_project_dir(get_project_settings_path(), "project settings")
     presets = args.presets or ["developer"]
 
     existing = load_settings(settings_path)
@@ -441,6 +610,9 @@ def register_local_lib(repo_dir: Path) -> None:
 
 def cmd_add(args: argparse.Namespace) -> None:
     """Add skills and permissions from a GitHub repo or local directory."""
+    if args.local and get_git_root() is None:
+        print("Not in a git repository — cannot use --local")
+        sys.exit(1)
     if not args.repo:
         if not args.interactive:
             print("Provide a repo or use -i for interactive selection")
@@ -461,35 +633,51 @@ def cmd_add(args: argparse.Namespace) -> None:
             return
         args.repo = selected[0]
 
-    subpath = None
+    subpath = getattr(args, "subpath", None)
+    no_cache = getattr(args, "no_cache", False)
+    temp_dir = None  # track temp clone for cleanup
+    source_label = None  # human-readable origin for --no-cache copies
+
     if args.repo and "://" in args.repo:
         github_info = parse_github_url(args.repo)
         if not github_info:
             print(f"Invalid GitHub URL: {args.repo}")
             sys.exit(1)
-        owner, repo_name, _branch, subpath = github_info
-        repo_dir = get_repo_dir(owner, repo_name)
-        if is_link(repo_dir):
-            repo_dir = repo_dir.resolve()
+        owner, repo_name, _branch, url_subpath = github_info
+        subpath = subpath or url_subpath
+        if no_cache:
+            repo_dir = clone_to_temp(owner, repo_name)
+            temp_dir = repo_dir.parent
+            source_label = f"{owner}/{repo_name}"
         else:
-            repo_dir = clone_or_pull(owner, repo_name)
+            repo_dir = get_repo_dir(owner, repo_name)
+            if is_link(repo_dir):
+                repo_dir = repo_dir.resolve()
+            else:
+                repo_dir = clone_or_pull(owner, repo_name)
     elif is_local_path(args.repo):
         repo_dir = Path(args.repo).expanduser().resolve()
         if not repo_dir.is_dir():
             print(f"Directory not found: {repo_dir}")
             sys.exit(1)
-        register_local_lib(repo_dir)
+        if not no_cache:
+            register_local_lib(repo_dir)
     else:
         try:
             owner, repo_name = parse_repo_spec(args.repo)
         except ValueError as e:
             print(str(e))
             sys.exit(1)
-        repo_dir = get_repo_dir(owner, repo_name)
-        if is_link(repo_dir):
-            repo_dir = repo_dir.resolve()
+        if no_cache:
+            repo_dir = clone_to_temp(owner, repo_name)
+            temp_dir = repo_dir.parent
+            source_label = f"{owner}/{repo_name}"
         else:
-            repo_dir = clone_or_pull(owner, repo_name)
+            repo_dir = get_repo_dir(owner, repo_name)
+            if is_link(repo_dir):
+                repo_dir = repo_dir.resolve()
+            else:
+                repo_dir = clone_or_pull(owner, repo_name)
 
     source_dir = repo_dir / subpath if subpath else repo_dir
     if subpath and not source_dir.is_dir():
@@ -497,21 +685,23 @@ def cmd_add(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Link skills (global or project)
+    use_copy = getattr(args, "copy", False) or no_cache
     skills_dir = get_project_skills_dir() if args.local else get_global_skills_dir()
     skill_filter = set(args.skills) if getattr(args, "skills", None) else None
     if args.interactive:
         available_skills = find_skills(source_dir)
         if available_skills:
-            installed = {p.name for p in skills_dir.iterdir() if is_link(p)} if skills_dir.exists() else set()
+            installed = {p.name for p in skills_dir.iterdir() if is_managed(p)} if skills_dir.exists() else set()
             selected = fzf_select_skills(available_skills, source_dir, installed)
-            linked_skills = link_skills(source_dir, skills_dir, only=set(selected))
+            linked_skills = link_skills(source_dir, skills_dir, only=set(selected), copy=use_copy, source_label=source_label)
         else:
             linked_skills = []
     else:
-        linked_skills = link_skills(source_dir, skills_dir, only=skill_filter)
+        linked_skills = link_skills(source_dir, skills_dir, only=skill_filter, copy=use_copy, source_label=source_label)
 
     if linked_skills:
-        print(f"Linked {len(linked_skills)} skill(s) to {abbrev(skills_dir)}:")
+        verb = "Copied" if use_copy else "Linked"
+        print(f"{verb} {len(linked_skills)} skill(s) to {abbrev(skills_dir)}:")
         for skill_name in sorted(linked_skills):
             print(f"  - {skill_name}")
 
@@ -521,14 +711,15 @@ def cmd_add(args: argparse.Namespace) -> None:
         available_commands = find_commands(source_dir)
         if available_commands:
             selected = fzf_select(sorted(c.name for c in available_commands), prompt="Commands> ")
-            linked_commands = link_commands(source_dir, commands_dir, only=set(selected))
+            linked_commands = link_commands(source_dir, commands_dir, only=set(selected), copy=use_copy)
         else:
             linked_commands = []
     else:
-        linked_commands = link_commands(source_dir, commands_dir)
+        linked_commands = link_commands(source_dir, commands_dir, copy=use_copy)
 
     if linked_commands:
-        print(f"Linked {len(linked_commands)} command(s) to {abbrev(commands_dir)}:")
+        verb = "Copied" if use_copy else "Linked"
+        print(f"{verb} {len(linked_commands)} command(s) to {abbrev(commands_dir)}:")
         for cmd_name in sorted(linked_commands):
             print(f"  - {cmd_name}")
 
@@ -538,32 +729,57 @@ def cmd_add(args: argparse.Namespace) -> None:
         add_read_permission(settings_path, repo_dir)
         print(f"Added Read permission for {abbrev(repo_dir)}")
 
-    # Merge permissions (always project)
+    # Merge permissions (project if in a git repo)
     settings_path = get_project_settings_path()
-    merged_keys = merge_permissions(repo_dir, settings_path)
+    if settings_path:
+        merged_keys = merge_permissions(repo_dir, settings_path)
+    else:
+        merged_keys = []
 
     if merged_keys:
         print(f"Merged permissions into {abbrev(settings_path)}:")
         for key in sorted(merged_keys):
             print(f"  - {key}")
 
+    # Record install options for update
+    if linked_skills or linked_commands:
+        # Derive a repo key from the repo_dir relative to cache, or use abs path for local
+        try:
+            rel = repo_dir.relative_to(get_cache_dir())
+            repo_key = str(rel)
+        except ValueError:
+            repo_key = str(repo_dir)
+        record_install(
+            repo_key,
+            subpath=subpath,
+            copy=use_copy,
+            scope="local" if args.local else "global",
+        )
+
     if not linked_skills and not linked_commands and not merged_keys:
         print("No skills or permissions found in repo")
+
+    # Clean up temp clone
+    if temp_dir:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def cmd_remove(args: argparse.Namespace) -> None:
     """Remove a skill by name, or interactively select skills to remove."""
-    skills_dir = get_project_skills_dir() if args.local else get_global_skills_dir()
+    if args.local and get_git_root() is None:
+        print("Not in a git repository — cannot use --local")
+        sys.exit(1)
+    skills_dir = require_project_dir(get_project_skills_dir()) if args.local else get_global_skills_dir()
 
     if args.interactive:
-        installed = sorted(p.name for p in skills_dir.iterdir() if is_link(p)) if skills_dir.exists() else []
+        installed = sorted(p.name for p in skills_dir.iterdir() if is_managed(p)) if skills_dir.exists() else []
         if not installed:
-            print(f"No linked skills in {abbrev(skills_dir)}")
+            print(f"No managed skills in {abbrev(skills_dir)}")
             return
         scope = "project" if args.local else "global"
         selected = fzf_select(installed, prompt=f"Remove {scope} skills> ")
         for name in selected:
-            remove_link(skills_dir / name)
+            remove_managed(skills_dir / name)
             print(f"Removed {name} from {abbrev(skills_dir)}")
         return
 
@@ -577,16 +793,28 @@ def cmd_remove(args: argparse.Namespace) -> None:
         print(f"Skill '{args.name}' not found in {abbrev(skills_dir)}")
         sys.exit(1)
 
-    if is_link(skill_path):
-        remove_link(skill_path)
+    if is_managed(skill_path):
+        remove_managed(skill_path)
         print(f"Removed {args.name} from {abbrev(skills_dir)}")
     else:
-        print(f"'{args.name}' is not a symlink - remove manually if intended")
+        print(f"'{args.name}' is not managed by skillset - remove manually if intended")
         sys.exit(1)
 
 
+def _resolve_update_options(repo_key: str, args: argparse.Namespace) -> tuple[str | None, bool, str]:
+    """Resolve subpath/copy/scope from manifest, with CLI flags as overrides."""
+    opts = get_install_options(repo_key) or {}
+    use_copy = getattr(args, "copy", False) or opts.get("copy", False)
+    subpath = opts.get("subpath")
+    scope = opts.get("scope", "global")
+    # CLI --global flag overrides saved scope
+    if getattr(args, "g", False):
+        scope = "global"
+    return subpath, use_copy, scope
+
+
 def cmd_update(args: argparse.Namespace) -> None:
-    """Update repo(s) and refresh symlinks and permissions."""
+    """Update repo(s) and refresh links (or copies) and permissions."""
     cache_dir = get_cache_dir()
 
     if args.repo:
@@ -604,18 +832,18 @@ def cmd_update(args: argparse.Namespace) -> None:
         if not is_link(repo_dir):
             clone_or_pull(owner, repo_name)
 
-        # Refresh skills (global or project)
-        skills_dir = get_global_skills_dir() if args.g else get_project_skills_dir()
-        linked_skills = link_skills(repo_dir, skills_dir)
+        repo_key = f"{owner}/{repo_name}"
+        subpath, use_copy, scope = _resolve_update_options(repo_key, args)
+        target_dir = repo_dir / subpath if subpath else repo_dir
 
-        # Refresh commands (global or project)
-        commands_dir = get_global_commands_dir() if args.g else get_project_commands_dir()
-        linked_commands = link_commands(repo_dir, commands_dir)
+        skills_dir = get_global_skills_dir() if scope == "global" else require_project_dir(get_project_skills_dir())
+        linked_skills = link_skills(target_dir, skills_dir, copy=use_copy)
+
+        commands_dir = get_global_commands_dir() if scope == "global" else require_project_dir(get_project_commands_dir())
+        linked_commands = link_commands(target_dir, commands_dir, copy=use_copy)
 
         print(f"Updated {len(linked_skills)} skill(s), {len(linked_commands)} command(s)")
     else:
-        skills_dir = get_global_skills_dir() if args.g else get_project_skills_dir()
-        commands_dir = get_global_commands_dir() if args.g else get_project_commands_dir()
         total_skills = 0
         total_commands = 0
 
@@ -628,9 +856,18 @@ def cmd_update(args: argparse.Namespace) -> None:
                         continue
                     if not is_link(repo_dir):
                         clone_or_pull(owner_dir.name, repo_dir.name)
-                    target_dir = repo_dir.resolve() if is_link(repo_dir) else repo_dir
-                    total_skills += len(link_skills(target_dir, skills_dir))
-                    total_commands += len(link_commands(target_dir, commands_dir))
+                    resolved_dir = repo_dir.resolve() if is_link(repo_dir) else repo_dir
+                    repo_key = f"{owner_dir.name}/{repo_dir.name}"
+                    subpath, use_copy, scope = _resolve_update_options(repo_key, args)
+                    source_dir = resolved_dir / subpath if subpath else resolved_dir
+
+                    if scope == "local" and get_git_root() is None:
+                        print(f"  Skipping {repo_key} (local scope, not in a git repo)")
+                        continue
+                    skills_dir = get_global_skills_dir() if scope == "global" else require_project_dir(get_project_skills_dir())
+                    commands_dir = get_global_commands_dir() if scope == "global" else require_project_dir(get_project_commands_dir())
+                    total_skills += len(link_skills(source_dir, skills_dir, copy=use_copy))
+                    total_commands += len(link_commands(source_dir, commands_dir, copy=use_copy))
 
         if total_skills == 0 and total_commands == 0:
             print("No repos installed")
@@ -670,12 +907,28 @@ def main() -> None:
         "-s", "--skill", dest="skills", metavar="SKILL", action="append",
         help="add only this skill by name (can be repeated)"
     )
+    p_add.add_argument(
+        "-p", "--path", dest="subpath", metavar="PATH",
+        help="subdirectory within the repo to use as root"
+    )
+    p_add.add_argument(
+        "--copy", action="store_true",
+        help="copy files instead of symlinking (for Windows without admin)"
+    )
+    p_add.add_argument(
+        "--no-cache", dest="no_cache", action="store_true",
+        help="clone to a temp dir, copy skills, then clean up (no persistent repo cache)"
+    )
 
     # update
     p_update = subparsers.add_parser("update", help="update repo(s) and refresh links")
     p_update.add_argument("repo", nargs="?", help="specific repo to update (optional)")
     p_update.add_argument(
         "-g", "--global", dest="g", action="store_true", help="update global skills"
+    )
+    p_update.add_argument(
+        "--copy", action="store_true",
+        help="copy files instead of symlinking (for Windows without admin)"
     )
 
     # remove
