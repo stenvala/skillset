@@ -124,15 +124,20 @@ def save_manifest(manifest: dict) -> None:
     path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
-def record_install(repo_key: str, *, subpath: str | None = None, copy: bool = False, scope: str = "global", trial: bool = False) -> None:
-    """Record install options for a repo in the manifest."""
+def record_install(repo_key: str, *, subpath: str | None = None, copy: bool = False, scope: str = "global", trial: bool | None = None) -> None:
+    """Record install options for a repo in the manifest.
+
+    trial=True/False explicitly sets the flag; trial=None preserves the existing value.
+    """
     manifest = load_manifest()
-    manifest[repo_key] = {
+    existing = manifest.get(repo_key, {})
+    entry = {
         "subpath": subpath,
         "copy": copy,
         "scope": scope,
-        "trial": trial,
+        "trial": existing.get("trial", False) if trial is None else trial,
     }
+    manifest[repo_key] = entry
     save_manifest(manifest)
 
 
@@ -778,12 +783,20 @@ def cmd_add(args: argparse.Namespace) -> None:
             repo_key = str(rel)
         except ValueError:
             repo_key = str(repo_dir)
+        is_trial = getattr(args, "trial", False)
+        # --try sets trial; no --try with -s preserves existing; no --try without -s clears trial
+        if is_trial:
+            trial_value = True
+        elif getattr(args, "skills", None):
+            trial_value = None  # adding specific skills — don't change trial status
+        else:
+            trial_value = False  # full re-add — promote to permanent
         record_install(
             repo_key,
             subpath=subpath,
             copy=use_copy,
             scope="local" if args.local else "global",
-            trial=getattr(args, "trial", False),
+            trial=trial_value,
         )
 
     if not linked_skills and not linked_commands and not merged_keys:
