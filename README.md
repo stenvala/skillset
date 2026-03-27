@@ -57,6 +57,27 @@ skillset list           # list all installed skills
 skillset list --prune   # list and remove broken links
 ```
 
+### Declarative setup with skillset.toml
+
+Declare all skills and symlinks in a `skillset.toml` file and apply in one command:
+
+```toml
+[skills]
+"owner/claude-skills" = ["commit", "review-pr"]  # specific skills
+"owner/tools" = true                              # all skills
+"myorg/internal" = { skills = ["auth"], local = true }  # project-scoped
+
+[links]
+"specs" = "../project-docs/specs"  # create local symlink → sibling repo path
+```
+
+```bash
+skillset apply            # apply ./skillset.toml
+skillset apply --file path/to/skillset.toml
+```
+
+`[links]` creates symlinks for cross-repo paths (e.g. shared specs from a sibling repo). Warns if a link target is not in `.gitignore`.
+
 ### Update cached repos
 
 ```bash
