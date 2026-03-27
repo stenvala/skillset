@@ -918,6 +918,70 @@ def cmd_update(args: argparse.Namespace) -> None:
             print(f"Updated ({total_skills} skill(s), {total_commands} command(s))")
 
 
+def cmd_apply(args: argparse.Namespace) -> None:
+    """Apply skills.toml — install all declared skills."""
+    import tomllib
+
+    file_path = Path(getattr(args, "file", None) or "skillset.toml")
+    if not file_path.exists():
+        print(f"No skillset.toml found at {file_path}")
+        sys.exit(1)
+
+    with open(file_path, "rb") as f:
+        config = tomllib.load(f)
+
+    skills_config = config.get("skills")
+    if skills_config is None:
+        print("No [skills] section found in skillset.toml")
+        sys.exit(1)
+
+    links_config = config.get("links", {})
+    for local_path, target in links_config.items():
+        link = Path(local_path)
+        if link.is_symlink():
+            print(f"Link already exists: {local_path} -> {os.readlink(local_path)}")
+        elif link.exists():
+            print(f"Skipping {local_path}: exists and is not a symlink")
+        else:
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(target)
+            print(f"Linked {local_path} -> {target}")
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", local_path],
+            capture_output=True,
+        ).returncode == 0
+        if not ignored:
+            print(f"  Warning: {local_path} is not in .gitignore")
+
+    for repo, value in skills_config.items():
+        if isinstance(value, bool):
+            if not value:
+                continue  # false = disabled
+            entry_skills, entry_local, entry_copy, entry_subpath = None, False, False, None
+        elif isinstance(value, list):
+            entry_skills, entry_local, entry_copy, entry_subpath = value, False, False, None
+        elif isinstance(value, dict):
+            entry_skills = value.get("skills")
+            entry_local = value.get("local", False)
+            entry_copy = value.get("copy", False)
+            entry_subpath = value.get("path")
+        else:
+            print(f"Invalid entry for {repo!r}")
+            sys.exit(1)
+
+        print(f"\nAdding {repo}...")
+        cmd_add(argparse.Namespace(
+            repo=repo,
+            local=entry_local,
+            skills=entry_skills,
+            subpath=entry_subpath,
+            copy=entry_copy,
+            no_cache=False,
+            trial=False,
+            interactive=False,
+        ))
+
+
 def cmd_clean(args: argparse.Namespace) -> None:
     """Remove all trial skills."""
     manifest = load_manifest()
@@ -1025,6 +1089,12 @@ def main() -> None:
         help="install skills on a trial basis (remove later with 'skillset clean')"
     )
 
+    # apply
+    p_apply_cmd = subparsers.add_parser("apply", help="install skills declared in skills.toml")
+    p_apply_cmd.add_argument(
+        "--file", metavar="PATH", help="path to skillset.toml (default: ./skillset.toml)"
+    )
+
     # update
     p_update = subparsers.add_parser("update", help="update repo(s) and refresh links")
     p_update.add_argument("repo", nargs="?", help="specific repo to update (optional)")
@@ -1053,8 +1123,9 @@ def main() -> None:
 
     handlers = {
         "list": cmd_list,
-"allow": cmd_allow,
+        "allow": cmd_allow,
         "add": cmd_add,
+        "apply": cmd_apply,
         "update": cmd_update,
         "clean": cmd_clean,
         "remove": cmd_remove,
