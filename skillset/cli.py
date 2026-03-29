@@ -1045,6 +1045,8 @@ def main() -> None:
         prog="skillset",
         description="Manage AI skills and permissions across projects",
     )
+    from skillset import __version__
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # list
