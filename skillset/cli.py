@@ -160,7 +160,7 @@ def clone_or_pull(owner: str, repo: str) -> Path:
             stderr = e.stderr.decode() if e.stderr else ""
             stdout = e.stdout.decode() if e.stdout else ""
             msg = stderr or stdout or "(no output)"
-            raise RuntimeError(f"git pull failed in {repo_dir}:\n{msg}") from None
+            print(f"Warning: git pull failed in {repo_dir}:\n{msg}")
     else:
         print(f"Cloning {owner}/{repo}...")
         repo_dir.parent.mkdir(parents=True, exist_ok=True)
