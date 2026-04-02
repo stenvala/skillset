@@ -154,7 +154,13 @@ def clone_or_pull(owner: str, repo: str) -> Path:
 
     if repo_dir.exists():
         print(f"Updating {owner}/{repo}...")
-        subprocess.run(["git", "pull"], cwd=repo_dir, check=True, capture_output=True)
+        try:
+            subprocess.run(["git", "pull"], cwd=repo_dir, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode() if e.stderr else ""
+            stdout = e.stdout.decode() if e.stdout else ""
+            msg = stderr or stdout or "(no output)"
+            raise RuntimeError(f"git pull failed in {repo_dir}:\n{msg}") from None
     else:
         print(f"Cloning {owner}/{repo}...")
         repo_dir.parent.mkdir(parents=True, exist_ok=True)
