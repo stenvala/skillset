@@ -311,11 +311,19 @@ def copy_dir(src: Path, dst: Path, source_label: str | None = None) -> None:
     (dst / SKILLSET_SOURCE_MARKER).write_text((source_label or str(src)) + "\n")
 
 
-def link_skills(repo_dir: Path, target_dir: Path, only: set[str] | None = None, copy: bool = False, source_label: str | None = None) -> list[str]:
+def link_skills(repo_dir: Path, target_dir: Path, only: set[str] | None = None, copy: bool = False, source_label: str | None = None, existing_only: bool = False) -> list[str]:
     """Link (or copy) skill directories from repo to target skills dir."""
     target_dir.mkdir(parents=True, exist_ok=True)
     available = find_skills(repo_dir)
     available_names = [s.name for s in available]
+
+    # When existing_only, restrict to skills already present in target dir
+    if existing_only:
+        existing = {p.name for p in target_dir.iterdir() if p.is_dir() or p.is_symlink()}
+        if only is not None:
+            only = only & existing
+        else:
+            only = existing
 
     # Resolve requested names: expand glob patterns, fuzzy-match typos
     if only is not None:
@@ -357,9 +365,15 @@ def link_skills(repo_dir: Path, target_dir: Path, only: set[str] | None = None, 
     return linked
 
 
-def link_commands(repo_dir: Path, target_dir: Path, only: set[str] | None = None, copy: bool = False) -> list[str]:
+def link_commands(repo_dir: Path, target_dir: Path, only: set[str] | None = None, copy: bool = False, existing_only: bool = False) -> list[str]:
     """Link (or copy) command files from repo to target commands dir."""
     target_dir.mkdir(parents=True, exist_ok=True)
+    if existing_only:
+        existing = {p.name for p in target_dir.iterdir() if p.is_file() or p.is_symlink()}
+        if only is not None:
+            only = only & existing
+        else:
+            only = existing
     linked = []
     for cmd_file in find_commands(repo_dir):
         cmd_name = cmd_file.name
@@ -836,6 +850,23 @@ def cmd_remove(args: argparse.Namespace) -> None:
         print("Provide a skill name or use -i for interactive selection")
         sys.exit(1)
 
+    # Glob pattern support (e.g. "bs-*")
+    if any(c in args.name for c in "*?["):
+        if not skills_dir.exists():
+            print(f"No skills in {abbrev(skills_dir)}")
+            sys.exit(1)
+        matched = sorted(
+            p.name for p in skills_dir.iterdir()
+            if fnmatch.fnmatch(p.name, args.name) and is_managed(p)
+        )
+        if not matched:
+            print(f"No managed skills matching '{args.name}' in {abbrev(skills_dir)}")
+            sys.exit(1)
+        for name in matched:
+            remove_managed(skills_dir / name)
+            print(f"Removed {name} from {abbrev(skills_dir)}")
+        return
+
     skill_path = skills_dir / args.name
 
     if not skill_path.exists():
@@ -865,6 +896,7 @@ def _resolve_update_options(repo_key: str, args: argparse.Namespace) -> tuple[st
 def cmd_update(args: argparse.Namespace) -> None:
     """Update repo(s) and refresh links (or copies) and permissions."""
     cache_dir = get_cache_dir()
+    existing_only = not getattr(args, "new", False)
 
     if args.repo:
         try:
@@ -886,10 +918,10 @@ def cmd_update(args: argparse.Namespace) -> None:
         target_dir = repo_dir / subpath if subpath else repo_dir
 
         skills_dir = get_global_skills_dir() if scope == "global" else require_project_dir(get_project_skills_dir())
-        linked_skills = link_skills(target_dir, skills_dir, copy=use_copy)
+        linked_skills = link_skills(target_dir, skills_dir, copy=use_copy, existing_only=existing_only)
 
         commands_dir = get_global_commands_dir() if scope == "global" else require_project_dir(get_project_commands_dir())
-        linked_commands = link_commands(target_dir, commands_dir, copy=use_copy)
+        linked_commands = link_commands(target_dir, commands_dir, copy=use_copy, existing_only=existing_only)
 
         print(f"Updated {len(linked_skills)} skill(s), {len(linked_commands)} command(s)")
     else:
@@ -915,8 +947,8 @@ def cmd_update(args: argparse.Namespace) -> None:
                         continue
                     skills_dir = get_global_skills_dir() if scope == "global" else require_project_dir(get_project_skills_dir())
                     commands_dir = get_global_commands_dir() if scope == "global" else require_project_dir(get_project_commands_dir())
-                    total_skills += len(link_skills(source_dir, skills_dir, copy=use_copy))
-                    total_commands += len(link_commands(source_dir, commands_dir, copy=use_copy))
+                    total_skills += len(link_skills(source_dir, skills_dir, copy=use_copy, existing_only=existing_only))
+                    total_commands += len(link_commands(source_dir, commands_dir, copy=use_copy, existing_only=existing_only))
 
         if total_skills == 0 and total_commands == 0:
             print("No repos installed")
@@ -1113,13 +1145,17 @@ def main() -> None:
         "--copy", action="store_true",
         help="copy files instead of symlinking (for Windows without admin)"
     )
+    p_update.add_argument(
+        "--new", action="store_true",
+        help="also link new skills/commands not currently linked"
+    )
 
     # clean
     subparsers.add_parser("clean", help="remove all trial skills")
 
     # remove
     p_remove = subparsers.add_parser("remove", help="remove a skill by name")
-    p_remove.add_argument("name", nargs="?", help="skill name to remove")
+    p_remove.add_argument("name", nargs="?", help="skill name or glob pattern (e.g. bs-*)")
     p_remove.add_argument(
         "-l", "--local", dest="local", action="store_true", help="remove from project skills"
     )
