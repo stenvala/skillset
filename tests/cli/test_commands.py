@@ -1,0 +1,95 @@
+"""Tests for CLI command wiring via CliRunner."""
+
+from unittest.mock import patch
+
+from typer.testing import CliRunner
+
+from skillset.cli import app
+
+runner = CliRunner()
+
+
+def test_list_invokes_cmd_list():
+    with patch("skillset.cli.cmd_list") as mock:
+        runner.invoke(app, ["list"])
+        mock.assert_called_once_with(prune=False)
+
+
+def test_list_prune():
+    with patch("skillset.cli.cmd_list") as mock:
+        runner.invoke(app, ["list", "--prune"])
+        mock.assert_called_once_with(prune=True)
+
+
+def test_add_invokes_cmd_add():
+    with patch("skillset.cli.cmd_add") as mock:
+        runner.invoke(app, ["add", "owner/repo"])
+        mock.assert_called_once()
+        kwargs = mock.call_args[1]
+        assert kwargs["repo"] == "owner/repo"
+
+
+def test_add_with_options():
+    with patch("skillset.cli.cmd_add") as mock:
+        runner.invoke(app, ["add", "owner/repo", "--global", "--copy", "-s", "skill-a"])
+        kwargs = mock.call_args[1]
+        assert kwargs["g"] is True
+        assert kwargs["copy"] is True
+        assert kwargs["skills"] == ["skill-a"]
+
+
+def test_remove_invokes_cmd_remove():
+    with patch("skillset.cli.cmd_remove") as mock:
+        runner.invoke(app, ["remove", "skill-a"])
+        mock.assert_called_once_with(name="skill-a", g=False)
+
+
+def test_update_invokes_cmd_update():
+    with patch("skillset.cli.cmd_update") as mock:
+        runner.invoke(app, ["update"])
+        mock.assert_called_once()
+
+
+def test_init_invokes_cmd_init():
+    with patch("skillset.cli.cmd_init") as mock:
+        runner.invoke(app, ["init"])
+        mock.assert_called_once_with(g=False)
+
+
+def test_init_global():
+    with patch("skillset.cli.cmd_init") as mock:
+        runner.invoke(app, ["init", "--global"])
+        mock.assert_called_once_with(g=True)
+
+
+def test_sync_invokes_cmd_sync():
+    with patch("skillset.cli.cmd_sync") as mock:
+        runner.invoke(app, ["sync"])
+        mock.assert_called_once_with(file=None, g=False)
+
+
+def test_clean_invokes_cmd_clean():
+    with patch("skillset.cli.cmd_clean") as mock:
+        runner.invoke(app, ["clean"])
+        mock.assert_called_once_with(g=False)
+
+
+def test_apply_invokes_cmd_apply():
+    with patch("skillset.cli.cmd_apply") as mock:
+        runner.invoke(app, ["apply"])
+        mock.assert_called_once_with(file=None, g=False)
+
+
+def test_main_function():
+    with patch("skillset.cli.app") as mock_app:
+        from skillset.cli import main
+
+        main()
+        mock_app.assert_called_once()
+
+
+def test_no_args_shows_help():
+    result = runner.invoke(app, [])
+    # typer with no_args_is_help=True exits with code 0 or 2 depending on version
+    assert result.exit_code in (0, 2)
+    assert "Usage" in result.output or "Manage" in result.output

@@ -1,6 +1,5 @@
 """Command handlers — all cmd_* functions dispatched from main()."""
 
-import argparse
 import os
 import shutil
 import subprocess
@@ -27,14 +26,15 @@ from skillset.manifest import (
 from skillset.paths import (
     abbrev,
     add_to_global_skillset,
+    add_to_skillset,
+    find_skillset_root,
     get_cache_dir,
     get_git_root,
     get_global_commands_dir,
-    get_global_settings_path,
     get_global_skills_dir,
     get_global_skillset_path,
+    get_local_skillset_path,
     get_project_commands_dir,
-    get_project_settings_path,
     get_project_skills_dir,
     require_project_dir,
 )
@@ -45,18 +45,8 @@ from skillset.repo import (
     parse_github_url,
     parse_repo_spec,
 )
-from skillset.settings import (
-    add_read_permission,
-    deep_merge,
-    get_preset,
-    load_settings,
-    merge_permissions,
-    save_settings,
-)
 from skillset.ui import (
     find_editable_skill,
-    fzf_select,
-    fzf_select_skills,
     is_local_path,
     prompt_skill_selection,
     register_local_lib,
@@ -77,16 +67,39 @@ GLOBAL_SKILLSET_TEMPLATE = """\
 [skills]
 """
 
+LOCAL_SKILLSET_TEMPLATE = """\
+# Project skillset configuration (skillset.toml)
+# Skills are installed to .claude/skills/
+#
+# Examples:
+#   "owner/repo" = true                                        # all skills from repo
+#   "owner/repo" = {skill-a = true, skill-b = false}           # selective per skill
+#   "owner/repo" = {path = "subdir"}                           # skills from subdirectory
+#   "owner/repo" = {local = true}                              # install to project scope
+#
+# Run 'skillset apply' to install skills.
+
+[skills]
+"""
+
 _SYNC_META_KEYS = {"editable", "path", "source", "copy"}
 
 
-def cmd_list(args: argparse.Namespace) -> None:
+def cmd_list(*, prune: bool = False) -> None:
     """List installed skills and commands."""
-    prune = getattr(args, "prune", False)
     global_skills_dir = get_global_skills_dir()
     project_skills_dir = get_project_skills_dir()
     global_commands_dir = get_global_commands_dir()
     project_commands_dir = get_project_commands_dir()
+
+    # Fallback: if not in a git repo, use skillset.toml root for project dirs
+    if project_skills_dir is None or project_commands_dir is None:
+        skillset_root = find_skillset_root()
+        if skillset_root:
+            if project_skills_dir is None:
+                project_skills_dir = skillset_root / ".claude" / "skills"
+            if project_commands_dir is None:
+                project_commands_dir = skillset_root / ".claude" / "commands"
 
     global_skills = sorted(global_skills_dir.iterdir()) if global_skills_dir.exists() else []
     if project_skills_dir and project_skills_dir.exists():
@@ -187,63 +200,35 @@ def cmd_list(args: argparse.Namespace) -> None:
         print("No skills, commands, or repos found")
 
 
-def cmd_allow(args: argparse.Namespace) -> None:
-    """Apply permission presets."""
-    settings_path = require_project_dir(get_project_settings_path(), "project settings")
-    presets = args.presets or ["developer"]
-
-    existing = load_settings(settings_path)
-    total_perms = 0
-    applied = []
-    for name in presets:
-        preset = get_preset(name)
-        if not preset:
-            print(f"Unknown preset '{name}'")
-            sys.exit(1)
-        existing = deep_merge(existing, preset)
-        total_perms += len(preset.get("permissions", {}).get("allow", []))
-        applied.append(name)
-    save_settings(settings_path, existing)
-    print(f"Applied {', '.join(applied)} ({total_perms} permissions) to {abbrev(settings_path)}")
-
-
-def cmd_add(args: argparse.Namespace) -> None:
+def cmd_add(
+    *,
+    repo: str | None = None,
+    g: bool = False,
+    skills: list[str] | None = None,
+    subpath: str | None = None,
+    copy: bool = False,
+    no_cache: bool = False,
+    editable: bool = False,
+    trial: bool = False,
+) -> None:
     """Add skills and permissions from a GitHub repo or local directory."""
-    if args.local and get_git_root() is None:
-        print("Not in a git repository — cannot use --local")
+    # Determine scope: local if skillset.toml found in path, unless --global
+    skillset_root = None if g else find_skillset_root()
+    is_local = skillset_root is not None
+    if not repo:
+        print("Provide a repo (e.g. skillset add owner/repo)")
         sys.exit(1)
-    if not args.repo:
-        if not args.interactive:
-            print("Provide a repo or use -i for interactive selection")
-            sys.exit(1)
-        cache_dir = get_cache_dir()
-        repos = []
-        if cache_dir.exists():
-            for owner_dir in sorted(cache_dir.iterdir()):
-                if owner_dir.is_dir():
-                    for repo_dir in sorted(owner_dir.iterdir()):
-                        if repo_dir.is_dir():
-                            repos.append(f"{owner_dir.name}/{repo_dir.name}")
-        if not repos:
-            print("No repos cached. Run 'skillset add owner/repo' first.")
-            sys.exit(1)
-        selected = fzf_select(repos, prompt="Repo> ")
-        if not selected:
-            return
-        args.repo = selected[0]
 
-    subpath = getattr(args, "subpath", None)
-    no_cache = getattr(args, "no_cache", False)
     temp_dir = None  # track temp clone for cleanup
     source_label = None  # human-readable origin for --no-cache copies
     toml_key = None  # normalized key for global skillset.toml
-    is_editable = getattr(args, "editable", False)
+    is_editable = editable
     toml_source = None  # local path for editable toml entries
 
     if is_editable:
-        if is_local_path(args.repo):
+        if is_local_path(repo):
             # Path given directly — register as editable source
-            repo_dir = Path(args.repo).expanduser().resolve()
+            repo_dir = Path(repo).expanduser().resolve()
             if not repo_dir.is_dir():
                 print(f"Directory not found: {repo_dir}")
                 sys.exit(1)
@@ -251,19 +236,19 @@ def cmd_add(args: argparse.Namespace) -> None:
             toml_source = str(repo_dir).replace("\\", "/")
         else:
             # Skill name — look up in registered editable sources
-            result = find_editable_skill(args.repo)
+            result = find_editable_skill(repo)
             if not result:
-                print(f"Skill '{args.repo}' not found in registered editable sources")
+                print(f"Skill '{repo}' not found in registered editable sources")
                 print("Register a source first: skillset add /path/to/skills -e")
                 sys.exit(1)
             repo_dir, toml_key = result
             toml_source = str(repo_dir).replace("\\", "/")
-            if not args.skills:
-                args.skills = [args.repo]
-    elif args.repo and "://" in args.repo:
-        github_info = parse_github_url(args.repo)
+            if not skills:
+                skills = [repo]
+    elif repo and "://" in repo:
+        github_info = parse_github_url(repo)
         if not github_info:
-            print(f"Invalid GitHub URL: {args.repo}")
+            print(f"Invalid GitHub URL: {repo}")
             sys.exit(1)
         owner, repo_name, _branch, url_subpath = github_info
         toml_key = f"{owner}/{repo_name}"
@@ -278,8 +263,8 @@ def cmd_add(args: argparse.Namespace) -> None:
                 repo_dir = repo_dir.resolve()
             else:
                 repo_dir = clone_or_pull(owner, repo_name)
-    elif is_local_path(args.repo):
-        repo_dir = Path(args.repo).expanduser().resolve()
+    elif is_local_path(repo):
+        repo_dir = Path(repo).expanduser().resolve()
         if not repo_dir.is_dir():
             print(f"Directory not found: {repo_dir}")
             sys.exit(1)
@@ -287,7 +272,7 @@ def cmd_add(args: argparse.Namespace) -> None:
             register_local_lib(repo_dir)
     else:
         try:
-            owner, repo_name = parse_repo_spec(args.repo)
+            owner, repo_name = parse_repo_spec(repo)
         except ValueError as e:
             print(str(e))
             sys.exit(1)
@@ -308,31 +293,20 @@ def cmd_add(args: argparse.Namespace) -> None:
         print(f"Path not found in repo: {subpath}")
         sys.exit(1)
 
-    # Link skills (global or project)
-    use_copy = getattr(args, "copy", False) or no_cache
-    skills_dir = get_project_skills_dir() if args.local else get_global_skills_dir()
-    skill_filter = set(args.skills) if getattr(args, "skills", None) else None
+    # Link skills (local project or global)
+    use_copy = copy or no_cache
+    skills_dir = (skillset_root / ".claude" / "skills") if is_local else get_global_skills_dir()
+    skill_filter = set(skills) if skills else None
     skill_selections = None  # tracks y/n per skill for toml
-    if args.interactive:
+    if skill_filter is not None:
+        # Build selections dict: selected skills true, all others false
         available_skills = find_skills(source_dir)
-        if available_skills:
-            installed = (
-                {p.name for p in skills_dir.iterdir() if is_managed(p)}
-                if skills_dir.exists()
-                else set()
-            )
-            selected = fzf_select_skills(available_skills, source_dir, installed)
-            linked_skills = link_skills(
-                source_dir, skills_dir, only=set(selected), copy=use_copy, source_label=source_label
-            )
-        else:
-            linked_skills = []
-    elif skill_filter is not None:
+        available_names = {s.name for s in available_skills}
+        skill_selections = {name: name in skill_filter for name in available_names}
         linked_skills = link_skills(
             source_dir, skills_dir, only=skill_filter, copy=use_copy, source_label=source_label
         )
     else:
-        # No -i, no -s: prompt user to add all or select
         available_skills = find_skills(source_dir)
         if available_skills:
             skill_filter, skill_selections = prompt_skill_selection(available_skills)
@@ -348,43 +322,15 @@ def cmd_add(args: argparse.Namespace) -> None:
         for skill_name in sorted(linked_skills):
             print(f"  - {skill_name}")
 
-    # Link commands (global or project)
-    commands_dir = get_project_commands_dir() if args.local else get_global_commands_dir()
-    if args.interactive:
-        available_commands = find_commands(source_dir)
-        if available_commands:
-            selected = fzf_select(sorted(c.name for c in available_commands), prompt="Commands> ")
-            linked_commands = link_commands(
-                source_dir, commands_dir, only=set(selected), copy=use_copy
-            )
-        else:
-            linked_commands = []
-    else:
-        linked_commands = link_commands(source_dir, commands_dir, copy=use_copy)
+    # Link commands (local project or global)
+    commands_dir = (skillset_root / ".claude" / "commands") if is_local else get_global_commands_dir()
+    linked_commands = link_commands(source_dir, commands_dir, copy=use_copy)
 
     if linked_commands:
         verb = "Copied" if use_copy else "Linked"
         print(f"{verb} {len(linked_commands)} command(s) to {abbrev(commands_dir)}:")
         for cmd_name in sorted(linked_commands):
             print(f"  - {cmd_name}")
-
-    # Add read permission for source directory if we linked anything
-    if linked_skills or linked_commands:
-        settings_path = get_project_settings_path() if args.local else get_global_settings_path()
-        add_read_permission(settings_path, repo_dir)
-        print(f"Added Read permission for {abbrev(repo_dir)}")
-
-    # Merge permissions (project if in a git repo)
-    settings_path = get_project_settings_path()
-    if settings_path:
-        merged_keys = merge_permissions(repo_dir, settings_path)
-    else:
-        merged_keys = []
-
-    if merged_keys:
-        print(f"Merged permissions into {abbrev(settings_path)}:")
-        for key in sorted(merged_keys):
-            print(f"  - {key}")
 
     # Record install options for update
     if linked_skills or linked_commands:
@@ -394,11 +340,11 @@ def cmd_add(args: argparse.Namespace) -> None:
             repo_key = str(rel)
         except ValueError:
             repo_key = str(repo_dir)
-        is_trial = getattr(args, "trial", False)
+        is_trial = trial
         # --try sets trial; no --try with -s preserves existing; no --try without -s clears trial
         if is_trial:
             trial_value = True
-        elif getattr(args, "skills", None):
+        elif skills:
             trial_value = None  # adding specific skills — don't change trial status
         else:
             trial_value = False  # full re-add — promote to permanent
@@ -406,136 +352,127 @@ def cmd_add(args: argparse.Namespace) -> None:
             repo_key,
             subpath=subpath,
             copy=use_copy,
-            scope="local" if args.local else "global",
+            scope="local" if is_local else "global",
             trial=trial_value,
         )
 
-    # Register in global skillset.toml (if exists, not local, not trial)
-    if (
-        toml_key
-        and (linked_skills or linked_commands)
-        and not args.local
-        and not getattr(args, "trial", False)
-    ):
-        written = add_to_global_skillset(
-            toml_key,
-            path=subpath,
-            skills=skill_selections,
-            editable=is_editable,
-            source=toml_source,
-        )
-        if written:
-            print(f"Added to {abbrev(get_global_skillset_path())}")
+    # Register in skillset.toml (local or global, not trial)
+    if toml_key and (linked_skills or linked_commands) and not trial:
+        if is_local:
+            local_toml = skillset_root / "skillset.toml"
+            written = add_to_skillset(
+                local_toml,
+                toml_key,
+                path=subpath,
+                skills=skill_selections,
+                editable=is_editable,
+                source=toml_source,
+            )
+            if written:
+                print(f"Added to {abbrev(local_toml)}")
+        else:
+            written = add_to_global_skillset(
+                toml_key,
+                path=subpath,
+                skills=skill_selections,
+                editable=is_editable,
+                source=toml_source,
+            )
+            if written:
+                print(f"Added to {abbrev(get_global_skillset_path())}")
 
-    if not linked_skills and not linked_commands and not merged_keys:
-        print("No skills or permissions found in repo")
+    if not linked_skills and not linked_commands:
+        print("No skills found in repo")
 
     # Clean up temp clone
     if temp_dir:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def cmd_remove(args: argparse.Namespace) -> None:
-    """Remove a skill by name, or interactively select skills to remove."""
-    if args.local and get_git_root() is None:
-        print("Not in a git repository — cannot use --local")
-        sys.exit(1)
-    skills_dir = (
-        require_project_dir(get_project_skills_dir()) if args.local else get_global_skills_dir()
-    )
+def cmd_remove(*, name: str | None = None, g: bool = False) -> None:
+    """Remove a skill by name."""
+    skillset_root = None if g else find_skillset_root()
+    if skillset_root:
+        skills_dir = require_project_dir(get_project_skills_dir())
+    else:
+        skills_dir = get_global_skills_dir()
 
-    if args.interactive:
-        import fnmatch
-
-        installed = (
-            sorted(p.name for p in skills_dir.iterdir() if is_managed(p))
-            if skills_dir.exists()
-            else []
-        )
-        if not installed:
-            print(f"No managed skills in {abbrev(skills_dir)}")
-            return
-        scope = "project" if args.local else "global"
-        selected = fzf_select(installed, prompt=f"Remove {scope} skills> ")
-        for name in selected:
-            remove_managed(skills_dir / name)
-            print(f"Removed {name} from {abbrev(skills_dir)}")
-        return
-
-    if not args.name:
-        print("Provide a skill name or use -i for interactive selection")
+    if not name:
+        print("Provide a skill name (e.g. skillset remove my-skill)")
         sys.exit(1)
 
     # Glob pattern support (e.g. "bs-*")
     import fnmatch
 
-    if any(c in args.name for c in "*?["):
+    if any(c in name for c in "*?["):
         if not skills_dir.exists():
             print(f"No skills in {abbrev(skills_dir)}")
             sys.exit(1)
         matched = sorted(
             p.name
             for p in skills_dir.iterdir()
-            if fnmatch.fnmatch(p.name, args.name) and is_managed(p)
+            if fnmatch.fnmatch(p.name, name) and is_managed(p)
         )
         if not matched:
-            print(f"No managed skills matching '{args.name}' in {abbrev(skills_dir)}")
+            print(f"No managed skills matching '{name}' in {abbrev(skills_dir)}")
             sys.exit(1)
         for name in matched:
             remove_managed(skills_dir / name)
             print(f"Removed {name} from {abbrev(skills_dir)}")
         return
 
-    skill_path = skills_dir / args.name
+    skill_path = skills_dir / name
 
     if not skill_path.exists():
-        print(f"Skill '{args.name}' not found in {abbrev(skills_dir)}")
+        print(f"Skill '{name}' not found in {abbrev(skills_dir)}")
         sys.exit(1)
 
     if is_managed(skill_path):
         remove_managed(skill_path)
-        print(f"Removed {args.name} from {abbrev(skills_dir)}")
+        print(f"Removed {name} from {abbrev(skills_dir)}")
     else:
-        print(f"'{args.name}' is not managed by skillset - remove manually if intended")
+        print(f"'{name}' is not managed by skillset - remove manually if intended")
         sys.exit(1)
 
 
 def _resolve_update_options(
-    repo_key: str, args: argparse.Namespace
+    repo_key: str, *, copy: bool = False, g: bool = False
 ) -> tuple[str | None, bool, str]:
     """Resolve subpath/copy/scope from manifest, with CLI flags as overrides."""
     opts = get_install_options(repo_key) or {}
-    use_copy = getattr(args, "copy", False) or opts.get("copy", False)
+    use_copy = copy or opts.get("copy", False)
     subpath = opts.get("subpath")
     scope = opts.get("scope", "global")
     # CLI --global flag overrides saved scope
-    if getattr(args, "g", False):
+    if g:
         scope = "global"
     return subpath, use_copy, scope
 
 
-def cmd_update(args: argparse.Namespace) -> None:
+def cmd_update(
+    *, repo: str | None = None, g: bool = False, copy: bool = False, new: bool = False
+) -> None:
     """Update repo(s) and refresh links (or copies) and permissions."""
     cache_dir = get_cache_dir()
-    existing_only = not getattr(args, "new", False)
+    existing_only = not new
 
-    if args.repo:
+    if repo:
         try:
-            owner, repo_name = parse_repo_spec(args.repo)
+            owner, repo_name = parse_repo_spec(repo)
         except ValueError as e:
             print(str(e))
             sys.exit(1)
 
         repo_dir = get_repo_dir(owner, repo_name)
         if not repo_dir.exists():
-            print(f"Repo {args.repo} not installed. Use 'skillset add {args.repo}' first.")
+            print(f"Repo {repo} not installed. Use 'skillset add {repo}' first.")
             sys.exit(1)
 
         if not is_link(repo_dir):
             clone_or_pull(owner, repo_name)
 
         repo_key = f"{owner}/{repo_name}"
-        subpath, use_copy, scope = _resolve_update_options(repo_key, args)
+        subpath, use_copy, scope = _resolve_update_options(repo_key, copy=copy, g=g)
         target_dir = repo_dir / subpath if subpath else repo_dir
 
         skills_dir = (
@@ -572,7 +509,7 @@ def cmd_update(args: argparse.Namespace) -> None:
                         clone_or_pull(owner_dir.name, repo_dir.name)
                     resolved_dir = repo_dir.resolve() if is_link(repo_dir) else repo_dir
                     repo_key = f"{owner_dir.name}/{repo_dir.name}"
-                    subpath, use_copy, scope = _resolve_update_options(repo_key, args)
+                    subpath, use_copy, scope = _resolve_update_options(repo_key, copy=copy, g=g)
                     source_dir = resolved_dir / subpath if subpath else resolved_dir
 
                     if scope == "local" and get_git_root() is None:
@@ -605,13 +542,27 @@ def cmd_update(args: argparse.Namespace) -> None:
             print(f"Updated ({total_skills} skill(s), {total_commands} command(s))")
 
 
-def cmd_apply(args: argparse.Namespace) -> None:
-    """Apply skills.toml — install all declared skills."""
+def cmd_apply(*, file: str | None = None, g: bool = False) -> None:
+    """Apply skillset.toml — install all declared skills.
+
+    Default: find local skillset.toml (walking up parents), otherwise global.
+    With --global: always use global ~/.claude/skillset.toml.
+    """
     import tomllib
 
-    file_path = Path(getattr(args, "file", None) or "skillset.toml")
+    if file:
+        file_path = Path(file)
+    elif g:
+        file_path = get_global_skillset_path()
+    else:
+        skillset_root = find_skillset_root()
+        if skillset_root:
+            file_path = skillset_root / "skillset.toml"
+        else:
+            file_path = get_global_skillset_path()
+
     if not file_path.exists():
-        print(f"No skillset.toml found at {file_path}")
+        print(f"No skillset.toml found at {abbrev(file_path)}")
         sys.exit(1)
 
     with open(file_path, "rb") as f:
@@ -647,12 +598,11 @@ def cmd_apply(args: argparse.Namespace) -> None:
         if isinstance(value, bool):
             if not value:
                 continue  # false = disabled
-            entry_skills, entry_local, entry_copy, entry_subpath = None, False, False, None
+            entry_skills, entry_copy, entry_subpath = None, False, None
         elif isinstance(value, list):
-            entry_skills, entry_local, entry_copy, entry_subpath = value, False, False, None
+            entry_skills, entry_copy, entry_subpath = value, False, None
         elif isinstance(value, dict):
             entry_skills = value.get("skills")
-            entry_local = value.get("local", False)
             entry_copy = value.get("copy", False)
             entry_subpath = value.get("path")
         else:
@@ -661,21 +611,21 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
         print(f"\nAdding {repo}...")
         cmd_add(
-            argparse.Namespace(
-                repo=repo,
-                local=entry_local,
-                skills=entry_skills,
-                subpath=entry_subpath,
-                copy=entry_copy,
-                no_cache=False,
-                trial=False,
-                interactive=False,
-            )
+            repo=repo,
+            skills=entry_skills,
+            subpath=entry_subpath,
+            copy=entry_copy,
+            no_cache=False,
+            trial=False,
         )
 
 
-def cmd_clean(args: argparse.Namespace) -> None:
-    """Remove all trial skills."""
+def cmd_clean(*, g: bool = False) -> None:
+    """Remove all trial skills.
+
+    Default: clean local trial skills if skillset.toml found, otherwise global.
+    With --global: clean global trial skills.
+    """
     manifest = load_manifest()
     trial_repos = {k: v for k, v in manifest.items() if v.get("trial")}
 
@@ -732,31 +682,58 @@ def cmd_clean(args: argparse.Namespace) -> None:
     print(f"Cleaned {removed} trial skill(s) from {len(trial_repos)} repo(s)")
 
 
-def cmd_init(args: argparse.Namespace) -> None:
-    """Initialize a skillset.toml file."""
-    if args.scope != "global":
-        print(f"Unknown scope '{args.scope}'. Only 'global' is supported.")
-        sys.exit(1)
+def cmd_init(*, g: bool = False) -> None:
+    """Initialize a skillset.toml file.
 
-    path = get_global_skillset_path()
+    Default: create local skillset.toml at git root.
+    With --global: create global ~/.claude/skillset.toml.
+    """
+    if g:
+        path = get_global_skillset_path()
+        template = GLOBAL_SKILLSET_TEMPLATE
+    else:
+        path = get_local_skillset_path()
+        if path is None:
+            print("Not in a git repository — initializing in current directory")
+            path = Path.cwd() / "skillset.toml"
+        template = LOCAL_SKILLSET_TEMPLATE
+
     if path.exists():
         print(f"Already exists: {abbrev(path)}")
         sys.exit(1)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(GLOBAL_SKILLSET_TEMPLATE)
+    path.write_text(template)
     print(f"Created {abbrev(path)}")
 
 
-def cmd_sync(args: argparse.Namespace) -> None:
-    """Sync skills from global skillset.toml — pull repos, link skills, report new."""
+def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
+    """Sync skills from skillset.toml — pull repos, link skills, report new.
+
+    Default: sync local skillset.toml if found (walking up parents), otherwise global.
+    With --global: always sync global ~/.claude/skillset.toml.
+    """
     import tomllib
 
-    file_path = Path(args.file) if getattr(args, "file", None) else get_global_skillset_path()
+    if file:
+        file_path = Path(file)
+    elif g:
+        file_path = get_global_skillset_path()
+    else:
+        skillset_root = find_skillset_root()
+        if skillset_root:
+            file_path = skillset_root / "skillset.toml"
+        else:
+            file_path = get_global_skillset_path()
+
+    is_local = file_path != get_global_skillset_path()
 
     if not file_path.exists():
         print(f"No skillset.toml at {abbrev(file_path)}")
-        print("Run 'skillset init global' to create one.")
+        if is_local:
+            print("Run 'skillset init' to create one.")
+        else:
+            print("Run 'skillset init --global' to create one.")
         sys.exit(1)
 
     with open(file_path, "rb") as f:
@@ -767,9 +744,13 @@ def cmd_sync(args: argparse.Namespace) -> None:
         print("No [skills] entries in skillset.toml")
         return
 
-    skills_dir = get_global_skills_dir()
-    commands_dir = get_global_commands_dir()
-    settings_path = get_global_settings_path()
+    if is_local:
+        skills_dir = require_project_dir(get_project_skills_dir())
+        commands_dir = require_project_dir(get_project_commands_dir())
+    else:
+        skills_dir = get_global_skills_dir()
+        commands_dir = get_global_commands_dir()
+    scope = "local" if is_local else "global"
     total_linked = 0
     new_skills_found: dict[str, list[str]] = {}
 
@@ -788,9 +769,7 @@ def cmd_sync(args: argparse.Namespace) -> None:
             linked = link_skills(repo_dir, skills_dir)
             link_commands(repo_dir, commands_dir)
             if linked:
-                add_read_permission(settings_path, repo_dir)
-                merge_permissions(repo_dir, settings_path)
-                record_install(f"{owner}/{repo_name}", scope="global")
+                record_install(f"{owner}/{repo_name}", scope=scope)
             total_linked += len(linked)
             for name in sorted(linked):
                 print(f"  + {name}")
@@ -864,12 +843,11 @@ def cmd_sync(args: argparse.Namespace) -> None:
                 for name in sorted(linked):
                     print(f"  + {name}")
 
-            # Permissions and tracking
-            add_read_permission(settings_path, source_dir)
+            # Record install for tracking
             if not editable:
-                merge_permissions(repo_dir, settings_path)
                 record_install(
-                    f"{owner}/{repo_name}", subpath=path_str, copy=use_copy, scope="global"
+                    f"{owner}/{repo_name}", subpath=path_str,
+                    copy=use_copy, scope=scope,
                 )
 
         else:

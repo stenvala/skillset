@@ -49,23 +49,32 @@ def get_project_commands_dir() -> Path | None:
     return root / ".claude" / "commands" if root else None
 
 
-def get_global_settings_path() -> Path:
-    """Get global Claude settings.local path (user preferences)."""
-    return Path.home() / ".claude" / "settings.local.json"
-
-
-def get_project_settings_path() -> Path | None:
-    """Get project-local Claude settings.local path, or None if not in a git repo."""
-    root = get_git_root()
-    return root / ".claude" / "settings.local.json" if root else None
-
 
 def get_global_skillset_path() -> Path:
     """Get the path to the global skillset.toml."""
     return Path.home() / ".claude" / "skillset.toml"
 
 
-def add_to_global_skillset(
+def get_local_skillset_path() -> Path | None:
+    """Get the path to the local skillset.toml at the repo root, or None if not in a git repo."""
+    root = get_git_root()
+    return root / "skillset.toml" if root else None
+
+
+def find_skillset_root() -> Path | None:
+    """Walk up from CWD looking for skillset.toml. Return its parent dir, or None."""
+    current = Path.cwd()
+    while True:
+        if (current / "skillset.toml").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
+def add_to_skillset(
+    toml_path: Path,
     repo_key: str,
     *,
     path: str | None = None,
@@ -73,8 +82,7 @@ def add_to_global_skillset(
     editable: bool = False,
     source: str | None = None,
 ) -> bool:
-    """Append a repo entry to ~/.claude/skillset.toml if it exists. Returns True if written."""
-    toml_path = get_global_skillset_path()
+    """Append a repo entry to a skillset.toml file if it exists. Returns True if written."""
     if not toml_path.exists():
         return False
 
@@ -99,6 +107,25 @@ def add_to_global_skillset(
 
     toml_path.write_text(content.rstrip() + "\n" + entry)
     return True
+
+
+def add_to_global_skillset(
+    repo_key: str,
+    *,
+    path: str | None = None,
+    skills: dict[str, bool] | None = None,
+    editable: bool = False,
+    source: str | None = None,
+) -> bool:
+    """Append a repo entry to ~/.claude/skillset.toml if it exists. Returns True if written."""
+    return add_to_skillset(
+        get_global_skillset_path(),
+        repo_key,
+        path=path,
+        skills=skills,
+        editable=editable,
+        source=source,
+    )
 
 
 def require_project_dir(path: Path | None, kind: str = "project") -> Path:

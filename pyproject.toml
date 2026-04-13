@@ -3,16 +3,19 @@ name = "skillset"
 version = "0.0.0.dev"  # Set by CI from release - do not edit manually
 description = "Manage AI skills and permissions across different projects"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["typer>=0.12"]
 
 [project.scripts]
 skillset = "skillset.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["skillset*"]
 
 [tool.uv]
 package = true
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-cov>=6.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
