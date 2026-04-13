@@ -33,6 +33,16 @@ skillset add owner/repo --local # add to project .claude/skills/
 skillset add --interactive      # select skills with fzf
 ```
 
+### Add editable skills from a local path
+
+```bash
+skillset add /path/to/skills-dir -e              # all editable skills from dir
+skillset add /path/to/skills-dir -e -s bu-sdd    # specific editable skill
+skillset add bu-sdd -e                           # look up in registered editable sources
+```
+
+Editable skills link directly from a local directory (no cache). The source is registered in `~/.claude/skillset.toml` so `skillset sync` can find it later. Once a source is registered, you can add individual skills by name with `-e`.
+
 ### Try skills temporarily
 
 ```bash
@@ -57,9 +67,34 @@ skillset list           # list all installed skills
 skillset list --prune   # list and remove broken links
 ```
 
-### Declarative setup with skillset.toml
+### Global skillset.toml and sync
 
-Declare all skills and symlinks in a `skillset.toml` file and apply in one command:
+Manage your global skills declaratively with `~/.claude/skillset.toml`:
+
+```bash
+skillset init global      # create ~/.claude/skillset.toml
+```
+
+```toml
+[skills]
+"owner/repo" = true                                    # all skills from repo
+"owner/repo" = {skill-a = true, skill-b = false}       # selective per skill
+"owner/repo" = {path = "skills/angular"}               # skills from subdirectory
+"owner/repo" = {path = "sub", editable = true, source = "~/local/checkout"}
+```
+
+```bash
+skillset sync             # pull repos, link skills, report new
+skillset sync --file path/to/skillset.toml
+```
+
+`sync` pulls each repo, links skills marked `true`, removes those marked `false`, and reports any new skills in the repo that aren't yet listed in your toml.
+
+**Editable skills** point to a local checkout instead of the cache. Set `editable = true` with `source` pointing to the local path. Use `path` to select a subdirectory within it.
+
+### Project skillset.toml (apply)
+
+Declare project-scoped skills and symlinks in a `skillset.toml` file in your repo:
 
 ```toml
 [skills]
