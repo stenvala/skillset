@@ -33,7 +33,7 @@ htmlcov/
 *.key
 
 # Claude skills (symlinks created by skillset)
-.claude/skills/
 .githooks/
 
 skillset.toml
+settings.local.json
