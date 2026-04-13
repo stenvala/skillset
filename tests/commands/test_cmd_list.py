@@ -1,0 +1,145 @@
+"""Tests for skillset.commands.cmd_list."""
+
+from skillset.commands import cmd_list
+from skillset.linking import SKILLSET_SOURCE_MARKER, copy_dir
+
+
+def test_no_skills_installed(env, capsys):
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "No skills, commands, or repos found" in output
+
+
+def test_lists_global_skills(env, source_repo, capsys):
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    copy_dir(source_repo / "skill-a", skills_dir / "skill-a", source_label="test/repo")
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "Global skills" in output
+    assert "skill-a" in output
+
+
+def test_lists_symlinked_skills(env, source_repo, capsys):
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "skill-a" in output
+
+
+def test_broken_link_displayed(env, capsys):
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    broken = skills_dir / "broken-skill"
+    broken.symlink_to("/nonexistent/path")
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "broken link" in output
+
+
+def test_prune_removes_broken_links(env, capsys):
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    broken = skills_dir / "broken-skill"
+    broken.symlink_to("/nonexistent/path")
+
+    cmd_list(prune=True)
+    output = capsys.readouterr().out
+    assert "pruned broken link" in output
+    assert not broken.exists()
+
+
+def test_lists_repos(env, capsys):
+    cache_dir = env.home / ".cache" / "skillset" / "repos" / "owner" / "repo"
+    cache_dir.mkdir(parents=True)
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "Repos" in output
+    assert "owner/repo" in output
+
+
+def test_lists_linked_repo(env, source_repo, capsys):
+    cache_dir = env.home / ".cache" / "skillset" / "repos" / "owner"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "repo").symlink_to(source_repo)
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "owner/repo" in output
+    assert "->" in output
+
+
+def test_manual_skill(env, capsys):
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    manual = skills_dir / "manual-skill"
+    manual.mkdir()
+    (manual / "SKILL.md").write_text("# manual\n")
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "(manual)" in output
+
+
+def test_trial_skill_tagged(env, source_repo, capsys):
+    from skillset.manifest import record_install
+
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    copy_dir(source_repo / "skill-a", skills_dir / "skill-a", source_label="test/repo")
+
+    record_install("test/repo", trial=True)
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "(trial)" in output
+
+
+def test_project_skills_listed(env, source_repo, capsys):
+    project_skills = env.project / ".claude" / "skills"
+    project_skills.mkdir(parents=True)
+    (project_skills / "proj-skill").symlink_to(source_repo / "skill-a")
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "Project skills" in output
+
+
+def test_lists_commands(env, source_repo, capsys):
+    commands_dir = env.home / ".claude" / "commands"
+    commands_dir.mkdir(parents=True)
+    (commands_dir / "do-thing.md").symlink_to(source_repo / "commands" / "do-thing.md")
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "Global commands" in output
+
+
+def test_project_commands_listed(env, source_repo, capsys):
+    project_cmds = env.project / ".claude" / "commands"
+    project_cmds.mkdir(parents=True)
+    (project_cmds / "do-thing.md").symlink_to(source_repo / "commands" / "do-thing.md")
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "Project commands" in output
+
+
+def test_list_fallback_skillset_root(env, source_repo, capsys, monkeypatch):
+    """When not in a git repo but skillset.toml is found, use skillset root for project dirs."""
+    monkeypatch.setattr("skillset.paths.get_git_root", lambda: None)
+    monkeypatch.setattr("skillset.commands.find_skillset_root", lambda: env.project)
+
+    skills_dir = env.project / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
+
+    cmd_list()
+    output = capsys.readouterr().out
+    assert "skill-a" in output

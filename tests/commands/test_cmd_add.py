@@ -1,0 +1,262 @@
+"""Tests for skillset.commands.cmd_add."""
+
+import subprocess
+from unittest.mock import patch
+
+import pytest
+
+from skillset.commands import cmd_add
+
+
+def test_add_from_local_path(env, source_repo, capsys):
+    with patch("builtins.input", return_value="y"):
+        cmd_add(repo=str(source_repo))
+
+    skills_dir = env.home / ".claude" / "skills"
+    assert (skills_dir / "skill-a").is_symlink()
+    assert (skills_dir / "skill-b").is_symlink()
+    output = capsys.readouterr().out
+    assert "Linked" in output
+
+
+def test_add_with_skill_filter(env, source_repo, capsys):
+    cmd_add(repo=str(source_repo), skills=["skill-a"])
+
+    skills_dir = env.home / ".claude" / "skills"
+    assert (skills_dir / "skill-a").is_symlink()
+    assert not (skills_dir / "skill-b").exists()
+
+
+def test_add_copy_mode(env, source_repo, capsys):
+    with patch("builtins.input", return_value="y"):
+        cmd_add(repo=str(source_repo), copy=True)
+
+    skills_dir = env.home / ".claude" / "skills"
+    assert (skills_dir / "skill-a").is_dir()
+    assert not (skills_dir / "skill-a").is_symlink()
+    output = capsys.readouterr().out
+    assert "Copied" in output
+
+
+def test_add_from_owner_repo(env, source_repo, capsys):
+    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+        with patch("skillset.commands.get_repo_dir", return_value=source_repo):
+            with patch("skillset.commands.is_link", return_value=False):
+                with patch("builtins.input", return_value="y"):
+                    cmd_add(repo="owner/repo")
+
+    output = capsys.readouterr().out
+    assert "Linked" in output
+
+
+def test_add_no_repo_exits(env):
+    with pytest.raises(SystemExit):
+        cmd_add()
+
+
+def test_add_global_flag_skips_local_detection(env, source_repo, capsys):
+    """With --global, skills go to global dir even when skillset.toml exists."""
+    with patch("builtins.input", return_value="y"):
+        cmd_add(repo=str(source_repo), g=True)
+
+    skills_dir = env.home / ".claude" / "skills"
+    assert (skills_dir / "skill-a").is_symlink()
+
+
+def test_add_local_path_not_found_exits(env):
+    with pytest.raises(SystemExit):
+        cmd_add(repo="/nonexistent/path", editable=True)
+
+
+def test_add_invalid_github_url_exits(env):
+    with pytest.raises(SystemExit):
+        cmd_add(repo="https://gitlab.com/owner/repo")
+
+
+def test_add_invalid_repo_spec_exits(env):
+    with pytest.raises(SystemExit):
+        cmd_add(repo="invalid-spec")
+
+
+def test_add_with_subpath(env, source_repo, capsys):
+    # Create a subpath
+    sub = source_repo / "sub"
+    skill = sub / "sub-skill"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# sub-skill\n")
+
+    with patch("builtins.input", return_value="y"):
+        cmd_add(repo=str(source_repo), subpath="sub")
+
+    skills_dir = env.home / ".claude" / "skills"
+    assert (skills_dir / "sub-skill").is_symlink()
+
+
+def test_add_subpath_not_found_exits(env, source_repo):
+    with pytest.raises(SystemExit):
+        cmd_add(repo=str(source_repo), subpath="nonexistent")
+
+
+def test_add_no_cache_mode(env, source_repo, capsys):
+    with patch("skillset.commands.clone_to_temp", return_value=source_repo):
+        with patch("builtins.input", return_value="y"):
+            cmd_add(repo="owner/repo", no_cache=True)
+
+    output = capsys.readouterr().out
+    assert "Copied" in output
+
+
+def test_add_github_url(env, source_repo, capsys):
+    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+        with patch("skillset.commands.get_repo_dir", return_value=source_repo):
+            with patch("skillset.commands.is_link", return_value=False):
+                with patch("builtins.input", return_value="y"):
+                    cmd_add(repo="https://github.com/owner/repo")
+
+    output = capsys.readouterr().out
+    assert "Linked" in output
+
+
+def test_add_trial(env, source_repo, capsys):
+    with patch("builtins.input", return_value="y"):
+        cmd_add(repo=str(source_repo), trial=True)
+
+    from skillset.manifest import load_manifest
+
+    manifest = load_manifest()
+    for key, opts in manifest.items():
+        assert opts.get("trial") is True
+
+
+def test_add_editable_skill_name(env, source_repo, capsys):
+    # Set up skillset.toml with editable entry
+    toml_path = env.home / ".claude" / "skillset.toml"
+    toml_path.write_text(
+        f'[skills]\n"my-lib" = {{editable = true, source = "{source_repo}"}}\n'
+    )
+
+    cmd_add(repo="skill-a", editable=True)
+
+    skills_dir = env.home / ".claude" / "skills"
+    assert (skills_dir / "skill-a").is_symlink()
+
+
+def test_add_editable_not_found_exits(env):
+    toml_path = env.home / ".claude" / "skillset.toml"
+    toml_path.write_text("[skills]\n")
+
+    with pytest.raises(SystemExit):
+        cmd_add(repo="nonexistent", editable=True)
+
+
+def test_add_registers_in_skillset_toml(env, source_repo, capsys):
+    toml_path = env.home / ".claude" / "skillset.toml"
+    toml_path.write_text("[skills]\n")
+
+    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+        with patch("skillset.commands.get_repo_dir", return_value=source_repo):
+            with patch("skillset.commands.is_link", return_value=False):
+                with patch("builtins.input", return_value="y"):
+                    cmd_add(repo="owner/repo")
+
+    content = toml_path.read_text()
+    assert '"owner/repo"' in content
+
+
+def test_add_empty_repo_reports_nothing(env, tmp_path, capsys):
+    empty_repo = tmp_path / "empty"
+    empty_repo.mkdir()
+
+    cmd_add(repo=str(empty_repo))
+
+    output = capsys.readouterr().out
+    assert "No skills found in repo" in output
+
+
+def test_add_links_skills_from_repo_with_settings(env, source_repo, capsys):
+    """Skills are linked even when repo contains a settings.json."""
+    import json
+
+    (source_repo / "settings.json").write_text(
+        json.dumps({"permissions": {"allow": ["Bash(git *)"]}})
+    )
+
+    with patch("builtins.input", return_value="y"):
+        cmd_add(repo=str(source_repo))
+
+    output = capsys.readouterr().out
+    assert "Linked" in output
+
+
+def test_add_github_url_no_cache(env, source_repo, capsys):
+    with patch("skillset.commands.clone_to_temp", return_value=source_repo):
+        with patch("builtins.input", return_value="y"):
+            cmd_add(repo="https://github.com/owner/repo", no_cache=True)
+
+    output = capsys.readouterr().out
+    assert "Copied" in output
+
+
+def test_add_linked_repo_dir(env, source_repo, capsys):
+    """When repo_dir is already a symlink, resolve it."""
+    cache_dir = env.home / ".cache" / "skillset" / "repos" / "owner"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "repo").symlink_to(source_repo)
+
+    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+        with patch("builtins.input", return_value="y"):
+            cmd_add(repo="owner/repo")
+
+    output = capsys.readouterr().out
+    assert "Linked" in output
+
+
+def test_add_editable_local_path(env, source_repo, capsys):
+    """Editable flag with a local directory path."""
+    with patch("builtins.input", return_value="y"):
+        cmd_add(repo=str(source_repo), editable=True)
+
+    skills_dir = env.home / ".claude" / "skills"
+    assert (skills_dir / "skill-a").is_symlink()
+
+
+def test_add_github_url_linked_repo(env, source_repo, capsys):
+    """GitHub URL when cached repo is a symlink."""
+    cache_dir = env.home / ".cache" / "skillset" / "repos" / "owner"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "repo").symlink_to(source_repo)
+
+    with patch("skillset.commands.get_repo_dir", return_value=cache_dir / "repo"):
+        with patch("builtins.input", return_value="y"):
+            cmd_add(repo="https://github.com/owner/repo")
+
+    output = capsys.readouterr().out
+    assert "Linked" in output
+
+
+def test_add_local_path_not_found_no_editable(env):
+    """Local path that doesn't exist (without --editable)."""
+    with pytest.raises(SystemExit):
+        cmd_add(repo="/nonexistent/local/path")
+
+
+def test_add_from_cached_repo(env, source_repo, capsys):
+    """When repo_dir is inside cache_dir, repo_key uses relative path."""
+    cache_dir = env.home / ".cache" / "skillset" / "repos" / "owner" / "repo"
+    cache_dir.mkdir(parents=True)
+    for name in ("skill-a", "skill-b"):
+        d = cache_dir / name
+        d.mkdir()
+        (d / "SKILL.md").write_text(f"# {name}\n")
+    cmds = cache_dir / "commands"
+    cmds.mkdir()
+    (cmds / "do-thing.md").write_text("# cmd\n")
+
+    with patch("skillset.commands.clone_or_pull", return_value=cache_dir):
+        with patch("skillset.commands.get_repo_dir", return_value=cache_dir):
+            with patch("skillset.commands.is_link", return_value=False):
+                with patch("builtins.input", return_value="y"):
+                    cmd_add(repo="owner/repo")
+
+    output = capsys.readouterr().out
+    assert "Linked" in output
