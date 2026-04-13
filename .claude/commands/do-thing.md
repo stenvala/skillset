@@ -1,1 +1,0 @@
-/private/var/folders/bj/t_s7t9d95hq8trnlj87y5c6h0000gn/T/pytest-of-stenvala/pytest-562/test_add_from_local_path0/source_repo/commands/do-thing.md
