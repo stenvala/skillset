@@ -37,6 +37,7 @@ from skillset.paths import (
     get_project_commands_dir,
     get_project_skills_dir,
     require_project_dir,
+    update_skillset_skills,
 )
 from skillset.repo import (
     clone_or_pull,
@@ -313,6 +314,10 @@ def cmd_add(
             linked_skills = link_skills(
                 source_dir, skills_dir, only=skill_filter, copy=use_copy, source_label=source_label
             )
+            # When "add all" was chosen and we'll write to toml, record all as true
+            # so the user gets a complete manifest they can edit later
+            if skill_selections is None and toml_key:
+                skill_selections = {s.name: True for s in available_skills}
         else:
             linked_skills = []
 
@@ -393,7 +398,7 @@ def cmd_remove(*, name: str | None = None, g: bool = False) -> None:
     """Remove a skill by name."""
     skillset_root = None if g else find_skillset_root()
     if skillset_root:
-        skills_dir = require_project_dir(get_project_skills_dir())
+        skills_dir = skillset_root / ".claude" / "skills"
     else:
         skills_dir = get_global_skills_dir()
 
@@ -475,10 +480,11 @@ def cmd_update(
         subpath, use_copy, scope = _resolve_update_options(repo_key, copy=copy, g=g)
         target_dir = repo_dir / subpath if subpath else repo_dir
 
+        skillset_root = find_skillset_root()
         skills_dir = (
             get_global_skills_dir()
             if scope == "global"
-            else require_project_dir(get_project_skills_dir())
+            else (skillset_root / ".claude" / "skills" if skillset_root else get_global_skills_dir())
         )
         linked_skills = link_skills(
             target_dir, skills_dir, copy=use_copy, existing_only=existing_only
@@ -487,7 +493,7 @@ def cmd_update(
         commands_dir = (
             get_global_commands_dir()
             if scope == "global"
-            else require_project_dir(get_project_commands_dir())
+            else (skillset_root / ".claude" / "commands" if skillset_root else get_global_commands_dir())
         )
         linked_commands = link_commands(
             target_dir, commands_dir, copy=use_copy, existing_only=existing_only
@@ -512,18 +518,19 @@ def cmd_update(
                     subpath, use_copy, scope = _resolve_update_options(repo_key, copy=copy, g=g)
                     source_dir = resolved_dir / subpath if subpath else resolved_dir
 
-                    if scope == "local" and get_git_root() is None:
+                    update_skillset_root = find_skillset_root()
+                    if scope == "local" and update_skillset_root is None and get_git_root() is None:
                         print(f"  Skipping {repo_key} (local scope, not in a git repo)")
                         continue
                     skills_dir = (
                         get_global_skills_dir()
                         if scope == "global"
-                        else require_project_dir(get_project_skills_dir())
+                        else (update_skillset_root / ".claude" / "skills" if update_skillset_root else get_global_skills_dir())
                     )
                     commands_dir = (
                         get_global_commands_dir()
                         if scope == "global"
-                        else require_project_dir(get_project_commands_dir())
+                        else (update_skillset_root / ".claude" / "commands" if update_skillset_root else get_global_commands_dir())
                     )
                     total_skills += len(
                         link_skills(
@@ -637,9 +644,13 @@ def cmd_clean(*, g: bool = False) -> None:
     for repo_key, opts in trial_repos.items():
         scope = opts.get("scope", "global")
         if scope == "local":
-            skills_dir = get_project_skills_dir()
+            clean_root = find_skillset_root()
+            if clean_root:
+                skills_dir = clean_root / ".claude" / "skills"
+            else:
+                skills_dir = get_project_skills_dir()
             if skills_dir is None:
-                print(f"  Skipping {repo_key} (local scope, not in a git repo)")
+                print(f"  Skipping {repo_key} (local scope, no skillset.toml or git repo)")
                 continue
         else:
             skills_dir = get_global_skills_dir()
@@ -745,14 +756,16 @@ def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
         return
 
     if is_local:
-        skills_dir = require_project_dir(get_project_skills_dir())
-        commands_dir = require_project_dir(get_project_commands_dir())
+        local_root = file_path.parent
+        skills_dir = local_root / ".claude" / "skills"
+        commands_dir = local_root / ".claude" / "commands"
     else:
         skills_dir = get_global_skills_dir()
         commands_dir = get_global_commands_dir()
     scope = "local" if is_local else "global"
     total_linked = 0
     new_skills_found: dict[str, list[str]] = {}
+    new_skills_context: dict[str, tuple[Path, bool]] = {}  # repo_key -> (source_dir, use_copy)
 
     for repo_key, value in skills_config.items():
         if isinstance(value, bool):
@@ -822,6 +835,7 @@ def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
 
                 if new:
                     new_skills_found[repo_key] = sorted(new)
+                    new_skills_context[repo_key] = (source_dir, use_copy)
 
                 if enabled:
                     linked = link_skills(source_dir, skills_dir, only=enabled, copy=use_copy)
@@ -853,13 +867,25 @@ def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
         else:
             print(f"\nSkipping {repo_key}: invalid value type")
 
-    # Report new untracked skills
+    # Prompt for new untracked skills
     if new_skills_found:
         print("\n--- New skills detected ---")
         for repo_key, names in new_skills_found.items():
-            print(f"{repo_key}:")
+            source_dir, use_copy = new_skills_context[repo_key]
+            decisions: dict[str, bool] = {}
             for name in names:
-                print(f"  {name}")
-        print("Add true/false for these in your skillset.toml")
+                answer = input(f"  Add {name} from {repo_key}? [y/N] ").strip().lower()
+                accepted = answer in ("y", "yes")
+                decisions[name] = accepted
+                if accepted:
+                    linked = link_skills(source_dir, skills_dir, only={name}, copy=use_copy)
+                    total_linked += len(linked)
+                    print(f"  + {name}")
+                else:
+                    print(f"  - {name} (skipped)")
+
+            if decisions:
+                update_skillset_skills(file_path, repo_key, decisions)
+                print(f"  Updated {abbrev(file_path)}")
 
     print(f"\nSync complete ({total_linked} skill(s) linked)")

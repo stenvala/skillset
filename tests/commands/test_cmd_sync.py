@@ -82,7 +82,8 @@ def test_sync_detects_new_skills(env, source_repo, capsys):
     toml.write_text('[skills."owner/repo"]\nskill-a = true\n')
 
     with patch("skillset.commands.clone_or_pull", return_value=source_repo):
-        cmd_sync()
+        with patch("builtins.input", return_value="n"):
+            cmd_sync()
 
     output = capsys.readouterr().out
     assert "New skills detected" in output

@@ -1,21 +1,28 @@
 """Integration tests using vivainio/agent-skills repository.
 
-These tests exercise the full add workflow against the real GitHub repo.
+These tests exercise the full add and sync workflows against the real GitHub repo.
 They require network access and will clone/pull vivainio/agent-skills.
 """
 
-import os
+import re
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from skillset.commands import cmd_add
+from skillset.commands import cmd_add, cmd_sync
 
 REPO = "vivainio/agent-skills"
 
 # Known skills in vivainio/agent-skills/skills/ (update if repo changes)
-MAIN_SKILLS = {"chat-transcript", "github-release", "public-github", "python-project", "tasks-py", "zaira"}
+MAIN_SKILLS = {
+    "chat-transcript",
+    "github-release",
+    "public-github",
+    "python-project",
+    "tasks-py",
+    "zaira",
+}
 EXTRA_SKILLS = {"mspec", "vp-code-review", "zipget"}
 
 
@@ -56,12 +63,16 @@ def local_env(tmp_path, monkeypatch):
     toml_path = project / "skillset.toml"
     toml_path.write_text("[skills]\n")
 
-    return type("Env", (), {
-        "home": home,
-        "project": project,
-        "tmp": tmp_path,
-        "toml_path": toml_path,
-    })()
+    return type(
+        "Env",
+        (),
+        {
+            "home": home,
+            "project": project,
+            "tmp": tmp_path,
+            "toml_path": toml_path,
+        },
+    )()
 
 
 class TestAddAllSkills:
@@ -73,7 +84,9 @@ class TestAddAllSkills:
 
         skills_dir = env.home / ".claude" / "skills"
         installed = {p.name for p in skills_dir.iterdir() if p.is_dir()}
-        assert MAIN_SKILLS.issubset(installed), f"Missing skills: {MAIN_SKILLS - installed}"
+        assert MAIN_SKILLS.issubset(
+            installed
+        ), f"Missing skills: {MAIN_SKILLS - installed}"
 
     def test_add_all_reports_linked(self, env, capsys):
         with patch("builtins.input", return_value="y"):
@@ -158,7 +171,9 @@ class TestAddFromSubpath:
 
         skills_dir = env.home / ".claude" / "skills"
         installed = {p.name for p in skills_dir.iterdir() if p.is_dir()}
-        assert not (MAIN_SKILLS & installed), f"Main skills should not be installed: {MAIN_SKILLS & installed}"
+        assert not (
+            MAIN_SKILLS & installed
+        ), f"Main skills should not be installed: {MAIN_SKILLS & installed}"
 
 
 class TestAddWithGitHubUrl:
@@ -174,7 +189,9 @@ class TestAddWithGitHubUrl:
 
     def test_url_with_tree_subpath(self, env, capsys):
         with patch("builtins.input", return_value="y"):
-            cmd_add(repo="https://github.com/vivainio/agent-skills/tree/main/extra-skills")
+            cmd_add(
+                repo="https://github.com/vivainio/agent-skills/tree/main/extra-skills"
+            )
 
         skills_dir = env.home / ".claude" / "skills"
         installed = {p.name for p in skills_dir.iterdir() if p.is_dir()}
@@ -262,3 +279,115 @@ class TestAddTrial:
         project_skills = local_env.project / ".claude" / "skills"
         installed = {p.name for p in project_skills.iterdir() if p.is_dir()}
         assert MAIN_SKILLS.issubset(installed)
+
+
+def _remove_skill_from_toml(toml_path: Path, skill_name: str) -> None:
+    """Remove a single skill entry from skillset.toml (inline or multi-line)."""
+    content = toml_path.read_text()
+    # Multi-line: remove "skill_name = true/false\n" on its own line
+    content = re.sub(rf"^{re.escape(skill_name)}\s*=\s*(true|false)\n", "", content, flags=re.MULTILINE)
+    # Inline: remove ", skill_name = true/false" or "skill_name = true/false, "
+    content = re.sub(rf",\s*{re.escape(skill_name)}\s*=\s*(true|false)", "", content)
+    content = re.sub(rf"{re.escape(skill_name)}\s*=\s*(true|false),\s*", "", content)
+    toml_path.write_text(content)
+
+
+class TestSyncDetectsRemovedSkill:
+    """After add -s zaira, remove a skill from toml, then sync detects it as new."""
+
+    REMOVED_SKILL = "public-github"
+
+    def _setup_and_remove(self, local_env):
+        """Add zaira, then remove public-github entry from toml."""
+        cmd_add(repo=REPO, skills=["zaira"])
+
+        # Verify the toml has the removed skill before we edit
+        content = local_env.toml_path.read_text()
+        assert f"{self.REMOVED_SKILL} = false" in content
+
+        # Remove the skill entry from toml
+        _remove_skill_from_toml(local_env.toml_path, self.REMOVED_SKILL)
+
+        # Verify it's gone
+        content = local_env.toml_path.read_text()
+        assert self.REMOVED_SKILL not in content
+
+        # Verify zaira is still there
+        assert "zaira = true" in content
+
+    def test_sync_accept_new_skill(self, local_env, capsys):
+        """User says 'y' to new skill: it gets linked and toml updated with true."""
+        self._setup_and_remove(local_env)
+
+        with patch("builtins.input", return_value="y"):
+            cmd_sync(file=str(local_env.toml_path))
+
+        # Skill should be linked
+        project_skills = local_env.project / ".claude" / "skills"
+        assert (project_skills / self.REMOVED_SKILL).exists()
+
+        # Toml should have the skill as true
+        content = local_env.toml_path.read_text()
+        assert f"{self.REMOVED_SKILL} = true" in content
+
+        output = capsys.readouterr().out
+        assert "New skills detected" in output
+        assert self.REMOVED_SKILL in output
+
+    def test_sync_reject_new_skill(self, local_env, capsys):
+        """User says 'n' to new skill: it stays unlinked and toml updated with false."""
+        self._setup_and_remove(local_env)
+
+        with patch("builtins.input", return_value="n"):
+            cmd_sync(file=str(local_env.toml_path))
+
+        # Skill should NOT be linked
+        project_skills = local_env.project / ".claude" / "skills"
+        assert not (project_skills / self.REMOVED_SKILL / "SKILL.md").exists()
+
+        # Toml should have the skill as false
+        content = local_env.toml_path.read_text()
+        assert f"{self.REMOVED_SKILL} = false" in content
+
+        output = capsys.readouterr().out
+        assert "New skills detected" in output
+        assert f"{self.REMOVED_SKILL}" in output
+        assert "skipped" in output
+
+    def test_sync_accept_links_skill_with_content(self, local_env, capsys):
+        """Accepted skill has actual SKILL.md content from the repo."""
+        self._setup_and_remove(local_env)
+
+        with patch("builtins.input", return_value="y"):
+            cmd_sync(file=str(local_env.toml_path))
+
+        skill_md = (
+            local_env.project / ".claude" / "skills" / self.REMOVED_SKILL / "SKILL.md"
+        )
+        assert skill_md.exists()
+        content = skill_md.read_text()
+        assert len(content) > 0
+
+    def test_sync_preserves_existing_skills(self, local_env, capsys):
+        """Sync keeps zaira linked regardless of the new skill decision."""
+        self._setup_and_remove(local_env)
+
+        with patch("builtins.input", return_value="n"):
+            cmd_sync(file=str(local_env.toml_path))
+
+        # zaira should still be linked
+        project_skills = local_env.project / ".claude" / "skills"
+        assert (project_skills / "zaira").exists()
+
+    def test_sync_toml_remains_valid(self, local_env, capsys):
+        """After sync updates the toml, it should still be valid TOML."""
+        import tomllib
+
+        self._setup_and_remove(local_env)
+
+        with patch("builtins.input", return_value="y"):
+            cmd_sync(file=str(local_env.toml_path))
+
+        with open(local_env.toml_path, "rb") as f:
+            config = tomllib.load(f)
+        assert REPO in config.get("skills", {})
