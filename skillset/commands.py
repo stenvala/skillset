@@ -872,17 +872,35 @@ def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
         print("\n--- New skills detected ---")
         for repo_key, names in new_skills_found.items():
             source_dir, use_copy = new_skills_context[repo_key]
-            decisions: dict[str, bool] = {}
+            print(f"\n{repo_key}: {len(names)} new skill(s):")
             for name in names:
-                answer = input(f"  Add {name} from {repo_key}? [y/N] ").strip().lower()
-                accepted = answer in ("y", "yes")
-                decisions[name] = accepted
-                if accepted:
-                    linked = link_skills(source_dir, skills_dir, only={name}, copy=use_copy)
-                    total_linked += len(linked)
+                print(f"  {name}")
+
+            choice = input("\nAdd [a]ll / [i]gnore all / [s]elect individually? [a/i/s] ").strip().lower()
+
+            if choice in ("a", "all"):
+                decisions = {name: True for name in names}
+                linked = link_skills(source_dir, skills_dir, only=set(names), copy=use_copy)
+                total_linked += len(linked)
+                for name in names:
                     print(f"  + {name}")
-                else:
+            elif choice in ("i", "ignore"):
+                decisions = {name: False for name in names}
+                for name in names:
                     print(f"  - {name} (skipped)")
+            else:
+                # Select individually
+                decisions = {}
+                for name in names:
+                    answer = input(f"  Add {name}? [y/N] ").strip().lower()
+                    accepted = answer in ("y", "yes")
+                    decisions[name] = accepted
+                    if accepted:
+                        linked = link_skills(source_dir, skills_dir, only={name}, copy=use_copy)
+                        total_linked += len(linked)
+                        print(f"  + {name}")
+                    else:
+                        print(f"  - {name} (skipped)")
 
             if decisions:
                 update_skillset_skills(file_path, repo_key, decisions)
