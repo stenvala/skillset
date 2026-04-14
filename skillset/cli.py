@@ -78,6 +78,10 @@ def add(
         bool,
         typer.Option("--try", help="Install skills on a trial basis (remove with 'skillset clean')"),
     ] = False,
+    interactive: Annotated[
+        bool,
+        typer.Option("-i", "--interactive", help="Select skills interactively with fzf"),
+    ] = False,
 ) -> None:
     """Add skills from a GitHub repo. Installs locally if skillset.toml is found in path."""
     cmd_add(
@@ -89,6 +93,7 @@ def add(
         no_cache=no_cache,
         editable=editable,
         trial=trial,
+        interactive=interactive,
     )
 
 
@@ -167,9 +172,13 @@ def remove(
     global_: Annotated[
         bool, typer.Option("-g", "--global", help="Remove from global skills (skip local skillset.toml)")
     ] = False,
+    interactive: Annotated[
+        bool,
+        typer.Option("-i", "--interactive", help="Select skills to remove with fzf"),
+    ] = False,
 ) -> None:
     """Remove a skill by name. Removes from local scope if skillset.toml is found in path."""
-    cmd_remove(name=name, g=global_)
+    cmd_remove(name=name, g=global_, interactive=interactive)
 
 
 def main() -> None:

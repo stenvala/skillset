@@ -48,6 +48,8 @@ from skillset.repo import (
 )
 from skillset.ui import (
     find_editable_skill,
+    fzf_select,
+    fzf_select_skills,
     is_local_path,
     prompt_skill_selection,
     register_local_lib,
@@ -211,14 +213,31 @@ def cmd_add(
     no_cache: bool = False,
     editable: bool = False,
     trial: bool = False,
+    interactive: bool = False,
 ) -> None:
     """Add skills and permissions from a GitHub repo or local directory."""
     # Determine scope: local if skillset.toml found in path, unless --global
     skillset_root = None if g else find_skillset_root()
     is_local = skillset_root is not None
     if not repo:
-        print("Provide a repo (e.g. skillset add owner/repo)")
-        sys.exit(1)
+        if not interactive:
+            print("Provide a repo (e.g. skillset add owner/repo)")
+            sys.exit(1)
+        cache_dir = get_cache_dir()
+        repos = []
+        if cache_dir.exists():
+            for owner_dir in sorted(cache_dir.iterdir()):
+                if owner_dir.is_dir():
+                    for repo_dir in sorted(owner_dir.iterdir()):
+                        if repo_dir.is_dir():
+                            repos.append(f"{owner_dir.name}/{repo_dir.name}")
+        if not repos:
+            print("No repos cached. Run 'skillset add owner/repo' first.")
+            sys.exit(1)
+        selected = fzf_select(repos, prompt="Repo> ")
+        if not selected:
+            return
+        repo = selected[0]
 
     temp_dir = None  # track temp clone for cleanup
     source_label = None  # human-readable origin for --no-cache copies
@@ -299,7 +318,17 @@ def cmd_add(
     skills_dir = (skillset_root / ".claude" / "skills") if is_local else get_global_skills_dir()
     skill_filter = set(skills) if skills else None
     skill_selections = None  # tracks y/n per skill for toml
-    if skill_filter is not None:
+    if interactive:
+        available_skills = find_skills(source_dir)
+        if available_skills:
+            installed = {p.name for p in skills_dir.iterdir() if is_managed(p)} if skills_dir.exists() else set()
+            selected = fzf_select_skills(available_skills, source_dir, installed)
+            linked_skills = link_skills(
+                source_dir, skills_dir, only=set(selected), copy=use_copy, source_label=source_label
+            )
+        else:
+            linked_skills = []
+    elif skill_filter is not None:
         # Build selections dict: selected skills true, all others false
         available_skills = find_skills(source_dir)
         available_names = {s.name for s in available_skills}
@@ -329,7 +358,15 @@ def cmd_add(
 
     # Link commands (local project or global)
     commands_dir = (skillset_root / ".claude" / "commands") if is_local else get_global_commands_dir()
-    linked_commands = link_commands(source_dir, commands_dir, copy=use_copy)
+    if interactive:
+        available_commands = find_commands(source_dir)
+        if available_commands:
+            selected_cmds = fzf_select(sorted(c.name for c in available_commands), prompt="Commands> ")
+            linked_commands = link_commands(source_dir, commands_dir, only=set(selected_cmds), copy=use_copy)
+        else:
+            linked_commands = []
+    else:
+        linked_commands = link_commands(source_dir, commands_dir, copy=use_copy)
 
     if linked_commands:
         verb = "Copied" if use_copy else "Linked"
@@ -394,16 +431,28 @@ def cmd_add(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def cmd_remove(*, name: str | None = None, g: bool = False) -> None:
-    """Remove a skill by name."""
+def cmd_remove(*, name: str | None = None, g: bool = False, interactive: bool = False) -> None:
+    """Remove a skill by name, or interactively select skills to remove."""
     skillset_root = None if g else find_skillset_root()
     if skillset_root:
         skills_dir = skillset_root / ".claude" / "skills"
     else:
         skills_dir = get_global_skills_dir()
 
+    if interactive:
+        installed = sorted(p.name for p in skills_dir.iterdir() if is_managed(p)) if skills_dir.exists() else []
+        if not installed:
+            print(f"No managed skills in {abbrev(skills_dir)}")
+            return
+        scope = "project" if skillset_root else "global"
+        selected = fzf_select(installed, prompt=f"Remove {scope} skills> ")
+        for skill_name in selected:
+            remove_managed(skills_dir / skill_name)
+            print(f"Removed {skill_name} from {abbrev(skills_dir)}")
+        return
+
     if not name:
-        print("Provide a skill name (e.g. skillset remove my-skill)")
+        print("Provide a skill name or use -i for interactive selection")
         sys.exit(1)
 
     # Glob pattern support (e.g. "bs-*")

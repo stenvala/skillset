@@ -1,0 +1,91 @@
+"""Tests for skillset.commands.cmd_remove interactive mode."""
+
+from unittest.mock import patch
+
+from skillset.commands import cmd_remove
+
+
+def test_interactive_selects_skills_to_remove(env, source_repo, capsys):
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
+    (skills_dir / "skill-b").symlink_to(source_repo / "skill-b")
+
+    with patch("skillset.commands.fzf_select", return_value=["skill-a"]):
+        cmd_remove(interactive=True)
+
+    assert not (skills_dir / "skill-a").exists()
+    assert (skills_dir / "skill-b").is_symlink()
+    output = capsys.readouterr().out
+    assert "Removed skill-a" in output
+
+
+def test_interactive_removes_multiple(env, source_repo, capsys):
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
+    (skills_dir / "skill-b").symlink_to(source_repo / "skill-b")
+
+    with patch("skillset.commands.fzf_select", return_value=["skill-a", "skill-b"]):
+        cmd_remove(interactive=True)
+
+    assert not (skills_dir / "skill-a").exists()
+    assert not (skills_dir / "skill-b").exists()
+
+
+def test_interactive_empty_selection(env, source_repo, capsys):
+    """When fzf returns empty, nothing is removed."""
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
+
+    with patch("skillset.commands.fzf_select", return_value=[]):
+        cmd_remove(interactive=True)
+
+    assert (skills_dir / "skill-a").is_symlink()
+
+
+def test_interactive_no_managed_skills(env, capsys):
+    """When no managed skills exist, prints message and returns."""
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+
+    cmd_remove(interactive=True)
+
+    output = capsys.readouterr().out
+    assert "No managed skills" in output
+
+
+def test_interactive_no_skills_dir(env, capsys):
+    """When skills dir doesn't exist, prints message and returns."""
+    cmd_remove(interactive=True)
+
+    output = capsys.readouterr().out
+    assert "No managed skills" in output
+
+
+def test_interactive_shows_scope_in_prompt(env, source_repo, capsys, monkeypatch):
+    """Interactive mode shows 'project' scope when in local context."""
+    monkeypatch.setattr("skillset.commands.find_skillset_root", lambda: env.project)
+    project_skills = env.project / ".claude" / "skills"
+    project_skills.mkdir(parents=True)
+    (project_skills / "skill-a").symlink_to(source_repo / "skill-a")
+
+    with patch("skillset.commands.fzf_select", return_value=["skill-a"]) as mock:
+        cmd_remove(interactive=True)
+
+    prompt = mock.call_args[1].get("prompt", mock.call_args[0][1] if len(mock.call_args[0]) > 1 else "")
+    assert "project" in prompt
+
+
+def test_interactive_global_scope_prompt(env, source_repo, capsys):
+    """Interactive mode shows 'global' scope when not in local context."""
+    skills_dir = env.home / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
+
+    with patch("skillset.commands.fzf_select", return_value=["skill-a"]) as mock:
+        cmd_remove(interactive=True)
+
+    prompt = mock.call_args[1].get("prompt", mock.call_args[0][1] if len(mock.call_args[0]) > 1 else "")
+    assert "global" in prompt
