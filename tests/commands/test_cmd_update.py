@@ -23,7 +23,7 @@ def test_update_specific_repo(env, source_repo, capsys):
     skills_dir.mkdir(parents=True)
     (skills_dir / "skill-a").symlink_to(cache_dir / "skill-a")
 
-    with patch("skillset.commands.clone_or_pull"):
+    with patch("skillset.commands.update.clone_or_pull"):
         cmd_update(repo="owner/repo")
 
     output = capsys.readouterr().out
@@ -53,7 +53,7 @@ def test_update_all_repos(env, source_repo, capsys):
     skills_dir.mkdir(parents=True)
     (skills_dir / "skill-a").symlink_to(cache_dir / "skill-a")
 
-    with patch("skillset.commands.clone_or_pull"):
+    with patch("skillset.commands.update.clone_or_pull"):
         cmd_update()
 
     output = capsys.readouterr().out
@@ -74,7 +74,7 @@ def test_update_with_new_flag(env, source_repo, capsys):
         d.mkdir()
         (d / "SKILL.md").write_text(f"# {name}\n")
 
-    with patch("skillset.commands.clone_or_pull"):
+    with patch("skillset.commands.update.clone_or_pull"):
         cmd_update(repo="owner/repo", new=True)
 
     output = capsys.readouterr().out
@@ -118,9 +118,9 @@ def test_update_local_scope_outside_git(env, source_repo, capsys, monkeypatch):
     (d / "SKILL.md").write_text("# skill-a\n")
 
     record_install("owner/repo", scope="local")
-    monkeypatch.setattr("skillset.commands.get_git_root", lambda: None)
+    monkeypatch.setattr("skillset.commands.update.get_git_root", lambda: None)
 
-    with patch("skillset.commands.clone_or_pull"):
+    with patch("skillset.commands.update.clone_or_pull"):
         cmd_update()
 
     output = capsys.readouterr().out
@@ -144,7 +144,7 @@ def test_update_all_non_dir_in_cache(env, source_repo, capsys):
     skills_dir.mkdir(parents=True)
     (skills_dir / "skill-a").symlink_to(d)
 
-    with patch("skillset.commands.clone_or_pull"):
+    with patch("skillset.commands.update.clone_or_pull"):
         cmd_update()
 
     output = capsys.readouterr().out

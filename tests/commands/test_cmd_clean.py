@@ -75,8 +75,8 @@ def test_cleans_linked_cached_repo(env, source_repo, capsys):
 
 
 def test_local_scope_outside_git_skips(env, source_repo, capsys, monkeypatch):
-    monkeypatch.setattr("skillset.commands.get_git_root", lambda: None)
-    monkeypatch.setattr("skillset.commands.get_project_skills_dir", lambda: None)
+    monkeypatch.setattr("skillset.paths.get_git_root", lambda: None)
+    monkeypatch.setattr("skillset.commands.remove.get_project_skills_dir", lambda: None)
 
     record_install("test/repo", trial=True, scope="local")
 

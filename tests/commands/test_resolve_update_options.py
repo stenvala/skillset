@@ -1,6 +1,6 @@
 """Tests for skillset.commands._resolve_update_options."""
 
-from skillset.commands import _resolve_update_options
+from skillset.commands.update import _resolve_update_options
 from skillset.manifest import record_install
 
 

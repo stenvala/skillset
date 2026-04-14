@@ -11,7 +11,7 @@ def test_interactive_selects_skills_to_remove(env, source_repo, capsys):
     (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
     (skills_dir / "skill-b").symlink_to(source_repo / "skill-b")
 
-    with patch("skillset.commands.fzf_select", return_value=["skill-a"]):
+    with patch("skillset.commands.remove.fzf_select", return_value=["skill-a"]):
         cmd_remove(interactive=True)
 
     assert not (skills_dir / "skill-a").exists()
@@ -26,7 +26,7 @@ def test_interactive_removes_multiple(env, source_repo, capsys):
     (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
     (skills_dir / "skill-b").symlink_to(source_repo / "skill-b")
 
-    with patch("skillset.commands.fzf_select", return_value=["skill-a", "skill-b"]):
+    with patch("skillset.commands.remove.fzf_select", return_value=["skill-a", "skill-b"]):
         cmd_remove(interactive=True)
 
     assert not (skills_dir / "skill-a").exists()
@@ -39,7 +39,7 @@ def test_interactive_empty_selection(env, source_repo, capsys):
     skills_dir.mkdir(parents=True)
     (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
 
-    with patch("skillset.commands.fzf_select", return_value=[]):
+    with patch("skillset.commands.remove.fzf_select", return_value=[]):
         cmd_remove(interactive=True)
 
     assert (skills_dir / "skill-a").is_symlink()
@@ -66,12 +66,12 @@ def test_interactive_no_skills_dir(env, capsys):
 
 def test_interactive_shows_scope_in_prompt(env, source_repo, capsys, monkeypatch):
     """Interactive mode shows 'project' scope when in local context."""
-    monkeypatch.setattr("skillset.commands.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.remove.find_skillset_root", lambda: env.project)
     project_skills = env.project / ".claude" / "skills"
     project_skills.mkdir(parents=True)
     (project_skills / "skill-a").symlink_to(source_repo / "skill-a")
 
-    with patch("skillset.commands.fzf_select", return_value=["skill-a"]) as mock:
+    with patch("skillset.commands.remove.fzf_select", return_value=["skill-a"]) as mock:
         cmd_remove(interactive=True)
 
     call_args = mock.call_args
@@ -88,7 +88,7 @@ def test_interactive_global_scope_prompt(env, source_repo, capsys):
     skills_dir.mkdir(parents=True)
     (skills_dir / "skill-a").symlink_to(source_repo / "skill-a")
 
-    with patch("skillset.commands.fzf_select", return_value=["skill-a"]) as mock:
+    with patch("skillset.commands.remove.fzf_select", return_value=["skill-a"]) as mock:
         cmd_remove(interactive=True)
 
     call_args = mock.call_args
