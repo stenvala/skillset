@@ -50,7 +50,6 @@ def get_project_commands_dir() -> Path | None:
     return root / ".claude" / "commands" if root else None
 
 
-
 def get_global_skillset_path() -> Path:
     """Get the path to the global skillset.toml."""
     return Path.home() / ".claude" / "skillset.toml"
@@ -147,8 +146,7 @@ def update_skillset_skills(
 
     content = toml_path.read_text()
     new_lines = [
-        f"{name} = {'true' if enabled else 'false'}"
-        for name, enabled in sorted(new_skills.items())
+        f"{name} = {'true' if enabled else 'false'}" for name, enabled in sorted(new_skills.items())
     ]
 
     # Try sub-table format first: [skills."repo/key"]
@@ -160,7 +158,7 @@ def update_skillset_skills(
     if header_match:
         # Find the end of this section (next header or EOF)
         section_end = len(content)
-        next_header = re.search(r'^\[', content[header_match.end():], re.MULTILINE)
+        next_header = re.search(r"^\[", content[header_match.end() :], re.MULTILINE)
         if next_header:
             section_end = header_match.end() + next_header.start()
         insert_at = content[:section_end].rstrip()
@@ -170,8 +168,12 @@ def update_skillset_skills(
 
     # Try inline dict format: "repo/key" = {existing content}
     inline_pattern = re.compile(
-        r'((?:"' + re.escape(repo_key) + r'"|'
-        + "'" + re.escape(repo_key) + r"')\s*=\s*\{)(.*?)(\})",
+        r'((?:"'
+        + re.escape(repo_key)
+        + r'"|'
+        + "'"
+        + re.escape(repo_key)
+        + r"')\s*=\s*\{)(.*?)(\})",
         re.DOTALL,
     )
     inline_match = inline_pattern.search(content)
@@ -186,7 +188,7 @@ def update_skillset_skills(
         else:
             updated = f"{prefix}{new_parts}{suffix}"
 
-        content = content[:inline_match.start()] + updated + content[inline_match.end():]
+        content = content[: inline_match.start()] + updated + content[inline_match.end() :]
         toml_path.write_text(content)
         return True
 

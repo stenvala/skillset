@@ -1,7 +1,7 @@
 """Tests for skillset.commands.cmd_list."""
 
 from skillset.commands import cmd_list
-from skillset.linking import SKILLSET_SOURCE_MARKER, copy_dir
+from skillset.linking import copy_dir
 
 
 def test_no_skills_installed(env, capsys):

@@ -1,7 +1,5 @@
 """Tests for skillset.paths.find_skillset_root."""
 
-import os
-
 from skillset.paths import find_skillset_root
 
 

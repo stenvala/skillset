@@ -84,9 +84,7 @@ class TestAddAllSkills:
 
         skills_dir = env.home / ".claude" / "skills"
         installed = {p.name for p in skills_dir.iterdir() if p.is_dir()}
-        assert MAIN_SKILLS.issubset(
-            installed
-        ), f"Missing skills: {MAIN_SKILLS - installed}"
+        assert MAIN_SKILLS.issubset(installed), f"Missing skills: {MAIN_SKILLS - installed}"
 
     def test_add_all_reports_linked(self, env, capsys):
         with patch("builtins.input", return_value="y"):
@@ -171,9 +169,9 @@ class TestAddFromSubpath:
 
         skills_dir = env.home / ".claude" / "skills"
         installed = {p.name for p in skills_dir.iterdir() if p.is_dir()}
-        assert not (
-            MAIN_SKILLS & installed
-        ), f"Main skills should not be installed: {MAIN_SKILLS & installed}"
+        assert not (MAIN_SKILLS & installed), (
+            f"Main skills should not be installed: {MAIN_SKILLS & installed}"
+        )
 
 
 class TestAddWithGitHubUrl:
@@ -189,9 +187,7 @@ class TestAddWithGitHubUrl:
 
     def test_url_with_tree_subpath(self, env, capsys):
         with patch("builtins.input", return_value="y"):
-            cmd_add(
-                repo="https://github.com/vivainio/agent-skills/tree/main/extra-skills"
-            )
+            cmd_add(repo="https://github.com/vivainio/agent-skills/tree/main/extra-skills")
 
         skills_dir = env.home / ".claude" / "skills"
         installed = {p.name for p in skills_dir.iterdir() if p.is_dir()}
@@ -285,7 +281,8 @@ def _remove_skill_from_toml(toml_path: Path, skill_name: str) -> None:
     """Remove a single skill entry from skillset.toml (inline or multi-line)."""
     content = toml_path.read_text()
     # Multi-line: remove "skill_name = true/false\n" on its own line
-    content = re.sub(rf"^{re.escape(skill_name)}\s*=\s*(true|false)\n", "", content, flags=re.MULTILINE)
+    pattern = rf"^{re.escape(skill_name)}\s*=\s*(true|false)\n"
+    content = re.sub(pattern, "", content, flags=re.MULTILINE)
     # Inline: remove ", skill_name = true/false" or "skill_name = true/false, "
     content = re.sub(rf",\s*{re.escape(skill_name)}\s*=\s*(true|false)", "", content)
     content = re.sub(rf"{re.escape(skill_name)}\s*=\s*(true|false),\s*", "", content)
@@ -361,9 +358,7 @@ class TestSyncDetectsRemovedSkill:
         with patch("builtins.input", return_value="y"):
             cmd_sync(file=str(local_env.toml_path))
 
-        skill_md = (
-            local_env.project / ".claude" / "skills" / self.REMOVED_SKILL / "SKILL.md"
-        )
+        skill_md = local_env.project / ".claude" / "skills" / self.REMOVED_SKILL / "SKILL.md"
         assert skill_md.exists()
         content = skill_md.read_text()
         assert len(content) > 0

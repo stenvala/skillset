@@ -28,5 +28,3 @@ def test_trial_clear(home_dir):
     record_install("owner/repo", trial=True)
     record_install("owner/repo", trial=False)
     assert get_install_options("owner/repo")["trial"] is False
-
-

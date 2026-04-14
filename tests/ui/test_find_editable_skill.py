@@ -13,9 +13,7 @@ def test_finds_skill_in_editable_source(home_dir, tmp_path):
     # Set up skillset.toml pointing to the source
     toml_path = home_dir / ".claude" / "skillset.toml"
     toml_path.parent.mkdir(parents=True)
-    toml_path.write_text(
-        f'[skills]\n"my-lib" = {{editable = true, source = "{source}"}}\n'
-    )
+    toml_path.write_text(f'[skills]\n"my-lib" = {{editable = true, source = "{source}"}}\n')
 
     result = find_editable_skill("my-skill")
     assert result is not None
@@ -46,9 +44,7 @@ def test_skips_non_editable_entries(home_dir, tmp_path):
 def test_skips_missing_source_dir(home_dir):
     toml_path = home_dir / ".claude" / "skillset.toml"
     toml_path.parent.mkdir(parents=True)
-    toml_path.write_text(
-        '[skills]\n"lib" = {editable = true, source = "/nonexistent/path"}\n'
-    )
+    toml_path.write_text('[skills]\n"lib" = {editable = true, source = "/nonexistent/path"}\n')
 
     assert find_editable_skill("skill") is None
 

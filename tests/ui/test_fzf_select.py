@@ -9,9 +9,7 @@ from skillset.ui import fzf_select
 
 
 def _make_fzf_result(stdout: str, returncode: int = 0):
-    return subprocess.CompletedProcess(
-        args=["fzf"], returncode=returncode, stdout=stdout
-    )
+    return subprocess.CompletedProcess(args=["fzf"], returncode=returncode, stdout=stdout)
 
 
 def test_returns_selected_items():

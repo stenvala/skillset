@@ -17,14 +17,19 @@ def test_interactive_no_repo_selects_from_cache(env, source_repo, capsys):
         (d / "SKILL.md").write_text(f"# {name}\n")
 
     with patch("skillset.commands.fzf_select", return_value=["owner/repo"]) as fzf_repo:
-        with patch("skillset.commands.fzf_select_skills", return_value=["skill-a"]) as fzf_skills:
+        with patch("skillset.commands.fzf_select_skills", return_value=["skill-a"]):
             with patch("skillset.commands.clone_or_pull", return_value=cache_dir):
                 with patch("skillset.commands.get_repo_dir", return_value=cache_dir):
                     with patch("skillset.commands.is_link", return_value=False):
                         cmd_add(interactive=True)
 
     fzf_repo.assert_called_once()
-    assert "Repo> " in fzf_repo.call_args[1].get("prompt", fzf_repo.call_args[0][1] if len(fzf_repo.call_args[0]) > 1 else "")
+    call_args = fzf_repo.call_args
+    prompt = call_args[1].get(
+        "prompt",
+        call_args[0][1] if len(call_args[0]) > 1 else "",
+    )
+    assert "Repo> " in prompt
     output = capsys.readouterr().out
     assert "Linked" in output
 

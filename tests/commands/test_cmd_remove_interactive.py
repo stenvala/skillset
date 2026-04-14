@@ -74,7 +74,11 @@ def test_interactive_shows_scope_in_prompt(env, source_repo, capsys, monkeypatch
     with patch("skillset.commands.fzf_select", return_value=["skill-a"]) as mock:
         cmd_remove(interactive=True)
 
-    prompt = mock.call_args[1].get("prompt", mock.call_args[0][1] if len(mock.call_args[0]) > 1 else "")
+    call_args = mock.call_args
+    prompt = call_args[1].get(
+        "prompt",
+        call_args[0][1] if len(call_args[0]) > 1 else "",
+    )
     assert "project" in prompt
 
 
@@ -87,5 +91,9 @@ def test_interactive_global_scope_prompt(env, source_repo, capsys):
     with patch("skillset.commands.fzf_select", return_value=["skill-a"]) as mock:
         cmd_remove(interactive=True)
 
-    prompt = mock.call_args[1].get("prompt", mock.call_args[0][1] if len(mock.call_args[0]) > 1 else "")
+    call_args = mock.call_args
+    prompt = call_args[1].get(
+        "prompt",
+        call_args[0][1] if len(call_args[0]) > 1 else "",
+    )
     assert "global" in prompt

@@ -1,6 +1,5 @@
 """Tests for skillset.ui.prompt_skill_selection."""
 
-from pathlib import Path
 from unittest.mock import patch
 
 from skillset.ui import prompt_skill_selection

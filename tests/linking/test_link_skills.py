@@ -76,7 +76,7 @@ def test_skips_unmanaged_existing(skill_repo, tmp_path, capsys):
 
 def test_fuzzy_match_suggestion(skill_repo, tmp_path, capsys):
     target = tmp_path / "skills"
-    linked = link_skills(skill_repo, target, only={"skill-"}, copy=True)
+    link_skills(skill_repo, target, only={"skill-"}, copy=True)
     # "skill-" doesn't exactly match or glob-match, fuzzy should suggest
     output = capsys.readouterr().out
     assert "not found" in output

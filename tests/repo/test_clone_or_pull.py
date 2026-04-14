@@ -1,7 +1,7 @@
 """Tests for skillset.repo.clone_or_pull."""
 
 import subprocess
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from skillset.repo import clone_or_pull
 

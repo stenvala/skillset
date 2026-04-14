@@ -1,7 +1,6 @@
 """Tests for skillset.ui.fzf_select_skills."""
 
-from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from skillset.ui import fzf_select_skills
 
