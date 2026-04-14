@@ -38,9 +38,9 @@ def test_add_copy_mode(env, source_repo, capsys):
 
 
 def test_add_from_owner_repo(env, source_repo, capsys):
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
-        with patch("skillset.commands.get_repo_dir", return_value=source_repo):
-            with patch("skillset.commands.is_link", return_value=False):
+    with patch("skillset.commands._resolve.clone_or_pull", return_value=source_repo):
+        with patch("skillset.commands._resolve.get_repo_dir", return_value=source_repo):
+            with patch("skillset.commands._resolve.is_link", return_value=False):
                 with patch("builtins.input", return_value="y"):
                     cmd_add(repo="owner/repo")
 
@@ -97,7 +97,7 @@ def test_add_subpath_not_found_exits(env, source_repo):
 
 
 def test_add_no_cache_mode(env, source_repo, capsys):
-    with patch("skillset.commands.clone_to_temp", return_value=source_repo):
+    with patch("skillset.commands._resolve.clone_to_temp", return_value=source_repo):
         with patch("builtins.input", return_value="y"):
             cmd_add(repo="owner/repo", no_cache=True)
 
@@ -106,9 +106,9 @@ def test_add_no_cache_mode(env, source_repo, capsys):
 
 
 def test_add_github_url(env, source_repo, capsys):
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
-        with patch("skillset.commands.get_repo_dir", return_value=source_repo):
-            with patch("skillset.commands.is_link", return_value=False):
+    with patch("skillset.commands._resolve.clone_or_pull", return_value=source_repo):
+        with patch("skillset.commands._resolve.get_repo_dir", return_value=source_repo):
+            with patch("skillset.commands._resolve.is_link", return_value=False):
                 with patch("builtins.input", return_value="y"):
                     cmd_add(repo="https://github.com/owner/repo")
 
@@ -150,9 +150,9 @@ def test_add_registers_in_skillset_toml(env, source_repo, capsys):
     toml_path = env.home / ".claude" / "skillset.toml"
     toml_path.write_text("[skills]\n")
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
-        with patch("skillset.commands.get_repo_dir", return_value=source_repo):
-            with patch("skillset.commands.is_link", return_value=False):
+    with patch("skillset.commands._resolve.clone_or_pull", return_value=source_repo):
+        with patch("skillset.commands._resolve.get_repo_dir", return_value=source_repo):
+            with patch("skillset.commands._resolve.is_link", return_value=False):
                 with patch("builtins.input", return_value="y"):
                     cmd_add(repo="owner/repo")
 
@@ -186,7 +186,7 @@ def test_add_links_skills_from_repo_with_settings(env, source_repo, capsys):
 
 
 def test_add_github_url_no_cache(env, source_repo, capsys):
-    with patch("skillset.commands.clone_to_temp", return_value=source_repo):
+    with patch("skillset.commands._resolve.clone_to_temp", return_value=source_repo):
         with patch("builtins.input", return_value="y"):
             cmd_add(repo="https://github.com/owner/repo", no_cache=True)
 
@@ -200,7 +200,7 @@ def test_add_linked_repo_dir(env, source_repo, capsys):
     cache_dir.mkdir(parents=True)
     (cache_dir / "repo").symlink_to(source_repo)
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+    with patch("skillset.commands._resolve.clone_or_pull", return_value=source_repo):
         with patch("builtins.input", return_value="y"):
             cmd_add(repo="owner/repo")
 
@@ -223,7 +223,7 @@ def test_add_github_url_linked_repo(env, source_repo, capsys):
     cache_dir.mkdir(parents=True)
     (cache_dir / "repo").symlink_to(source_repo)
 
-    with patch("skillset.commands.get_repo_dir", return_value=cache_dir / "repo"):
+    with patch("skillset.commands._resolve.get_repo_dir", return_value=cache_dir / "repo"):
         with patch("builtins.input", return_value="y"):
             cmd_add(repo="https://github.com/owner/repo")
 
@@ -249,9 +249,9 @@ def test_add_from_cached_repo(env, source_repo, capsys):
     cmds.mkdir()
     (cmds / "do-thing.md").write_text("# cmd\n")
 
-    with patch("skillset.commands.clone_or_pull", return_value=cache_dir):
-        with patch("skillset.commands.get_repo_dir", return_value=cache_dir):
-            with patch("skillset.commands.is_link", return_value=False):
+    with patch("skillset.commands._resolve.clone_or_pull", return_value=cache_dir):
+        with patch("skillset.commands._resolve.get_repo_dir", return_value=cache_dir):
+            with patch("skillset.commands._resolve.is_link", return_value=False):
                 with patch("builtins.input", return_value="y"):
                     cmd_add(repo="owner/repo")
 

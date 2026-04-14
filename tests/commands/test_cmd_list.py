@@ -134,7 +134,7 @@ def test_project_commands_listed(env, source_repo, capsys):
 def test_list_fallback_skillset_root(env, source_repo, capsys, monkeypatch):
     """When not in a git repo but skillset.toml is found, use skillset root for project dirs."""
     monkeypatch.setattr("skillset.paths.get_git_root", lambda: None)
-    monkeypatch.setattr("skillset.commands.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.list.find_skillset_root", lambda: env.project)
 
     skills_dir = env.project / ".claude" / "skills"
     skills_dir.mkdir(parents=True)

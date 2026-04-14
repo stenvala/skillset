@@ -76,7 +76,7 @@ def test_links_section(env, capsys):
 
     toml.write_text(f'[skills]\n\n[links]\n"{env.project / "mylink"}" = "{target}"\n')
 
-    with patch("skillset.commands.subprocess.run") as mock_run:
+    with patch("skillset.commands.update.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
         cmd_apply(file=str(toml))
 
@@ -93,7 +93,7 @@ def test_links_existing_symlink(env, capsys):
 
     toml.write_text(f'[skills]\n\n[links]\n"{link_path}" = "{target}"\n')
 
-    with patch("skillset.commands.subprocess.run") as mock_run:
+    with patch("skillset.commands.update.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         cmd_apply(file=str(toml))
 
@@ -110,7 +110,7 @@ def test_links_existing_file_skipped(env, capsys):
 
     toml.write_text(f'[skills]\n\n[links]\n"{existing}" = "{target}"\n')
 
-    with patch("skillset.commands.subprocess.run") as mock_run:
+    with patch("skillset.commands.update.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         cmd_apply(file=str(toml))
 
@@ -132,7 +132,7 @@ def test_apply_global_flag(env, source_repo, capsys):
 
 def test_apply_local_skillset(env, source_repo, capsys, monkeypatch):
     """cmd_apply() finds local skillset.toml via find_skillset_root."""
-    monkeypatch.setattr("skillset.commands.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.update.find_skillset_root", lambda: env.project)
     toml = env.project / "skillset.toml"
     toml.write_text(f'[skills]\n"{source_repo}" = true\n')
 

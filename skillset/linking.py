@@ -95,6 +95,36 @@ def copy_dir(src: Path, dst: Path, source_label: str | None = None) -> None:
     (dst / SKILLSET_SOURCE_MARKER).write_text((source_label or str(src)) + "\n")
 
 
+def _resolve_skill_filter(
+    only: set[str] | None, available_names: list[str], target_dir: Path, existing_only: bool
+) -> set[str] | None:
+    """Resolve the skill name filter: apply existing_only, expand globs, fuzzy-match."""
+    if existing_only:
+        existing = {p.name for p in target_dir.iterdir() if p.is_dir() or p.is_symlink()}
+        only = (only & existing) if only is not None else existing
+
+    if only is None:
+        return None
+
+    verified = set()
+    for name in only:
+        if any(c in name for c in "*?["):
+            matched = fnmatch.filter(available_names, name)
+            if matched:
+                verified.update(matched)
+            else:
+                print(f"  Pattern '{name}' matched no skills")
+        elif name in available_names:
+            verified.add(name)
+        else:
+            suggestion = fuzzy_match(name, available_names)
+            if suggestion:
+                print(f"  Skill '{name}' not found. Did you mean '{suggestion}'?")
+            else:
+                print(f"  Skill '{name}' not found (no close match)")
+    return verified
+
+
 def link_skills(
     repo_dir: Path,
     target_dir: Path,
@@ -108,34 +138,7 @@ def link_skills(
     available = find_skills(repo_dir)
     available_names = [s.name for s in available]
 
-    # When existing_only, restrict to skills already present in target dir
-    if existing_only:
-        existing = {p.name for p in target_dir.iterdir() if p.is_dir() or p.is_symlink()}
-        if only is not None:
-            only = only & existing
-        else:
-            only = existing
-
-    # Resolve requested names: expand glob patterns, fuzzy-match typos
-    if only is not None:
-        verified = set()
-        for name in only:
-            if any(c in name for c in "*?["):
-                # Glob pattern — expand against available names
-                matched = fnmatch.filter(available_names, name)
-                if matched:
-                    verified.update(matched)
-                else:
-                    print(f"  Pattern '{name}' matched no skills")
-            elif name in available_names:
-                verified.add(name)
-            else:
-                suggestion = fuzzy_match(name, available_names)
-                if suggestion:
-                    print(f"  Skill '{name}' not found. Did you mean '{suggestion}'?")
-                else:
-                    print(f"  Skill '{name}' not found (no close match)")
-        only = verified
+    only = _resolve_skill_filter(only, available_names, target_dir, existing_only)
 
     linked = []
     for skill_dir in available:

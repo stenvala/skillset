@@ -25,7 +25,7 @@ def test_sync_bool_true_entry(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
     toml.write_text('[skills]\n"owner/repo" = true\n')
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
         cmd_sync()
 
     output = capsys.readouterr().out
@@ -55,7 +55,7 @@ def test_sync_dict_entry_all_skills(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
     toml.write_text('[skills]\n"owner/repo" = {}\n')
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
         cmd_sync()
 
     output = capsys.readouterr().out
@@ -66,7 +66,7 @@ def test_sync_selective_skills(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
     toml.write_text('[skills."owner/repo"]\nskill-a = true\nskill-b = false\n')
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
         cmd_sync()
 
     output = capsys.readouterr().out
@@ -78,7 +78,7 @@ def test_sync_detects_new_skills(env, source_repo, capsys):
     # Only track skill-a, leaving skill-b as "new"
     toml.write_text('[skills."owner/repo"]\nskill-a = true\n')
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
         with patch("builtins.input", return_value="n"):
             cmd_sync()
 
@@ -95,7 +95,7 @@ def test_sync_removes_excluded_skills(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
     toml.write_text('[skills."owner/repo"]\nskill-a = true\nskill-b = false\n')
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
         cmd_sync()
 
     assert not (skills_dir / "skill-b").exists()
@@ -148,7 +148,7 @@ def test_sync_with_path(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
     toml.write_text('[skills."owner/repo"]\npath = "sub"\n')
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
         cmd_sync()
 
     output = capsys.readouterr().out
@@ -159,7 +159,7 @@ def test_sync_path_not_found_in_repo(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
     toml.write_text('[skills."owner/repo"]\npath = "nonexistent"\n')
 
-    with patch("skillset.commands.clone_or_pull", return_value=source_repo):
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
         cmd_sync()
 
     output = capsys.readouterr().out
@@ -203,7 +203,7 @@ def test_sync_global_flag(env, source_repo, capsys):
 
 def test_sync_local_scope(env, source_repo, capsys, monkeypatch):
     """Sync with local skillset.toml found via find_skillset_root."""
-    monkeypatch.setattr("skillset.commands.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.update.find_skillset_root", lambda: env.project)
     toml = env.project / "skillset.toml"
     toml.write_text(f'[skills]\n"{source_repo}" = true\n')
 
@@ -220,7 +220,7 @@ def test_sync_local_scope(env, source_repo, capsys, monkeypatch):
 
 def test_sync_local_file_not_found(env, capsys, monkeypatch):
     """Local sync file not found shows local hint."""
-    monkeypatch.setattr("skillset.commands.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.update.find_skillset_root", lambda: env.project)
 
     with pytest.raises(SystemExit):
         cmd_sync()

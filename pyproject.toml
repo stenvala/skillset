@@ -26,11 +26,15 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = [
+    "C901",   # mccabe complexity
     "E",      # pycodestyle errors
     "F",      # pyflakes
     "I",      # isort
     "UP",     # pyupgrade
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.format]
 quote-style = "double"

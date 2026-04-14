@@ -84,7 +84,7 @@ def test_glob_no_skills_dir_exits(env):
 
 def test_remove_local_scope(env, source_repo, capsys, monkeypatch):
     """When skillset_root is found, remove from project skills dir."""
-    monkeypatch.setattr("skillset.commands.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.remove.find_skillset_root", lambda: env.project)
     project_skills = env.project / ".claude" / "skills"
     project_skills.mkdir(parents=True)
     (project_skills / "skill-a").symlink_to(source_repo / "skill-a")
