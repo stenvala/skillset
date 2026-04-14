@@ -1,6 +1,5 @@
 """Tests for skillset.commands.cmd_sync."""
 
-import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -65,9 +64,7 @@ def test_sync_dict_entry_all_skills(env, source_repo, capsys):
 
 def test_sync_selective_skills(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
-    toml.write_text(
-        '[skills."owner/repo"]\nskill-a = true\nskill-b = false\n'
-    )
+    toml.write_text('[skills."owner/repo"]\nskill-a = true\nskill-b = false\n')
 
     with patch("skillset.commands.clone_or_pull", return_value=source_repo):
         cmd_sync()
@@ -108,9 +105,7 @@ def test_sync_removes_excluded_skills(env, source_repo, capsys):
 
 def test_sync_editable(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
-    toml.write_text(
-        f'[skills."my-lib"]\neditable = true\nsource = "{source_repo}"\n'
-    )
+    toml.write_text(f'[skills."my-lib"]\neditable = true\nsource = "{source_repo}"\n')
 
     cmd_sync()
     output = capsys.readouterr().out
@@ -128,9 +123,7 @@ def test_sync_editable_missing_source(env, capsys):
 
 def test_sync_editable_source_not_found(env, capsys):
     toml = env.home / ".claude" / "skillset.toml"
-    toml.write_text(
-        '[skills."my-lib"]\neditable = true\nsource = "/nonexistent"\n'
-    )
+    toml.write_text('[skills."my-lib"]\neditable = true\nsource = "/nonexistent"\n')
 
     cmd_sync()
     output = capsys.readouterr().out
@@ -153,7 +146,7 @@ def test_sync_with_path(env, source_repo, capsys):
     (skill / "SKILL.md").write_text("# nested\n")
 
     toml = env.home / ".claude" / "skillset.toml"
-    toml.write_text(f'[skills."owner/repo"]\npath = "sub"\n')
+    toml.write_text('[skills."owner/repo"]\npath = "sub"\n')
 
     with patch("skillset.commands.clone_or_pull", return_value=source_repo):
         cmd_sync()
@@ -164,7 +157,7 @@ def test_sync_with_path(env, source_repo, capsys):
 
 def test_sync_path_not_found_in_repo(env, source_repo, capsys):
     toml = env.home / ".claude" / "skillset.toml"
-    toml.write_text(f'[skills."owner/repo"]\npath = "nonexistent"\n')
+    toml.write_text('[skills."owner/repo"]\npath = "nonexistent"\n')
 
     with patch("skillset.commands.clone_or_pull", return_value=source_repo):
         cmd_sync()

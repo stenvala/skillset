@@ -1,14 +1,14 @@
 """Tests for skillset.__init__ version detection."""
 
-from unittest.mock import patch
-
 from importlib.metadata import PackageNotFoundError
+from unittest.mock import patch
 
 
 def test_version_fallback_when_not_installed():
     with patch("importlib.metadata.version", side_effect=PackageNotFoundError):
         # Re-import to trigger the except branch
         import importlib
+
         import skillset
 
         importlib.reload(skillset)

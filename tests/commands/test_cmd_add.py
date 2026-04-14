@@ -1,6 +1,5 @@
 """Tests for skillset.commands.cmd_add."""
 
-import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -131,9 +130,7 @@ def test_add_trial(env, source_repo, capsys):
 def test_add_editable_skill_name(env, source_repo, capsys):
     # Set up skillset.toml with editable entry
     toml_path = env.home / ".claude" / "skillset.toml"
-    toml_path.write_text(
-        f'[skills]\n"my-lib" = {{editable = true, source = "{source_repo}"}}\n'
-    )
+    toml_path.write_text(f'[skills]\n"my-lib" = {{editable = true, source = "{source_repo}"}}\n')
 
     cmd_add(repo="skill-a", editable=True)
 

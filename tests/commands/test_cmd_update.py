@@ -1,12 +1,10 @@
 """Tests for skillset.commands.cmd_update."""
 
-import subprocess
 from unittest.mock import patch
 
 import pytest
 
 from skillset.commands import cmd_update
-from skillset.linking import copy_dir
 from skillset.manifest import record_install
 
 
@@ -151,5 +149,3 @@ def test_update_all_non_dir_in_cache(env, source_repo, capsys):
 
     output = capsys.readouterr().out
     assert "Updated" in output
-
-

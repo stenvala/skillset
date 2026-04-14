@@ -53,9 +53,7 @@ def test_list_entry(env, source_repo, capsys):
 
 def test_dict_entry(env, source_repo, capsys):
     toml = env.project / "skillset.toml"
-    toml.write_text(
-        f'[skills."{source_repo}"]\nlocal = false\ncopy = true\n'
-    )
+    toml.write_text(f'[skills."{source_repo}"]\nlocal = false\ncopy = true\n')
 
     with patch("builtins.input", return_value="y"):
         cmd_apply(file=str(toml))
@@ -76,9 +74,7 @@ def test_links_section(env, capsys):
     target = env.tmp / "target_file"
     target.write_text("content")
 
-    toml.write_text(
-        f'[skills]\n\n[links]\n"{env.project / "mylink"}" = "{target}"\n'
-    )
+    toml.write_text(f'[skills]\n\n[links]\n"{env.project / "mylink"}" = "{target}"\n')
 
     with patch("skillset.commands.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
@@ -95,9 +91,7 @@ def test_links_existing_symlink(env, capsys):
     link_path = env.project / "mylink"
     link_path.symlink_to(target)
 
-    toml.write_text(
-        f'[skills]\n\n[links]\n"{link_path}" = "{target}"\n'
-    )
+    toml.write_text(f'[skills]\n\n[links]\n"{link_path}" = "{target}"\n')
 
     with patch("skillset.commands.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
@@ -114,9 +108,7 @@ def test_links_existing_file_skipped(env, capsys):
     existing = env.project / "myfile"
     existing.write_text("real file")
 
-    toml.write_text(
-        f'[skills]\n\n[links]\n"{existing}" = "{target}"\n'
-    )
+    toml.write_text(f'[skills]\n\n[links]\n"{existing}" = "{target}"\n')
 
     with patch("skillset.commands.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)

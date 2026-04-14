@@ -33,9 +33,7 @@ def test_with_skills(home_dir):
     toml_path.parent.mkdir(parents=True)
     toml_path.write_text("[skills]\n")
 
-    result = add_to_global_skillset(
-        "owner/repo", skills={"skill-a": True, "skill-b": False}
-    )
+    result = add_to_global_skillset("owner/repo", skills={"skill-a": True, "skill-b": False})
     assert result is True
     content = toml_path.read_text()
     assert "skill-a = true" in content
@@ -47,12 +45,8 @@ def test_editable(home_dir):
     toml_path.parent.mkdir(parents=True)
     toml_path.write_text("[skills]\n")
 
-    result = add_to_global_skillset(
-        "my-skills", editable=True, source="~/local/skills"
-    )
+    result = add_to_global_skillset("my-skills", editable=True, source="~/local/skills")
     assert result is True
     content = toml_path.read_text()
     assert "editable = true" in content
     assert 'source = "~/local/skills"' in content
-
-

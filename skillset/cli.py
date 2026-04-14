@@ -1,6 +1,6 @@
 """CLI for managing AI skills across projects."""
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -33,7 +33,7 @@ def _version_callback(value: bool) -> None:
 @app.callback()
 def _main(
     version: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--version", callback=_version_callback, is_eager=True, help="Show version"),
     ] = None,
 ) -> None:
@@ -50,16 +50,17 @@ def list_cmd(
 
 @app.command()
 def add(
-    repo: Annotated[Optional[str], typer.Argument(help="Repo in owner/repo format")] = None,
+    repo: Annotated[str | None, typer.Argument(help="Repo in owner/repo format")] = None,
     global_: Annotated[
-        bool, typer.Option("-g", "--global", help="Install skills globally (skip local skillset.toml)")
+        bool,
+        typer.Option("-g", "--global", help="Install skills globally"),
     ] = False,
     skill: Annotated[
-        Optional[list[str]],
-        typer.Option("-s", "--skill", help="Add only this skill by name (can be repeated)"),
+        list[str] | None,
+        typer.Option("-s", "--skill", help="Add only this skill by name (repeatable)"),
     ] = None,
     subpath: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("-p", "--path", help="Subdirectory within the repo to use as root"),
     ] = None,
     copy: Annotated[
@@ -76,7 +77,7 @@ def add(
     ] = False,
     trial: Annotated[
         bool,
-        typer.Option("--try", help="Install skills on a trial basis (remove with 'skillset clean')"),
+        typer.Option("--try", help="Install on trial basis (remove with 'clean')"),
     ] = False,
     interactive: Annotated[
         bool,
@@ -100,7 +101,7 @@ def add(
 @app.command()
 def apply(
     file: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Path to skillset.toml"),
     ] = None,
     global_: Annotated[
@@ -113,15 +114,9 @@ def apply(
 
 @app.command()
 def update(
-    repo: Annotated[
-        Optional[str], typer.Argument(help="Specific repo to update (optional)")
-    ] = None,
-    global_: Annotated[
-        bool, typer.Option("-g", "--global", help="Update global skills")
-    ] = False,
-    copy: Annotated[
-        bool, typer.Option("--copy", help="Copy files instead of symlinking")
-    ] = False,
+    repo: Annotated[str | None, typer.Argument(help="Specific repo to update (optional)")] = None,
+    global_: Annotated[bool, typer.Option("-g", "--global", help="Update global skills")] = False,
+    copy: Annotated[bool, typer.Option("--copy", help="Copy files instead of symlinking")] = False,
     new: Annotated[
         bool, typer.Option("--new", help="Also link new skills/commands not currently linked")
     ] = False,
@@ -143,7 +138,7 @@ def init(
 @app.command()
 def sync(
     file: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Path to skillset.toml"),
     ] = None,
     global_: Annotated[
@@ -167,10 +162,11 @@ def clean(
 @app.command()
 def remove(
     name: Annotated[
-        Optional[str], typer.Argument(help="Skill name or glob pattern (e.g. bs-*)")
+        str | None, typer.Argument(help="Skill name or glob pattern (e.g. bs-*)")
     ] = None,
     global_: Annotated[
-        bool, typer.Option("-g", "--global", help="Remove from global skills (skip local skillset.toml)")
+        bool,
+        typer.Option("-g", "--global", help="Remove from global skills"),
     ] = False,
     interactive: Annotated[
         bool,

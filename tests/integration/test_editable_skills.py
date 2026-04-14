@@ -126,13 +126,13 @@ class TestSyncEditableSelective:
     def test_sync_only_links_enabled(self, local_env):
         """Write toml manually with alpha=true, beta=false, gamma=true."""
         local_env.toml_path.write_text(
-            f'[skills]\n'
+            f"[skills]\n"
             f'[skills."editable-skills"]\n'
-            f'editable = true\n'
+            f"editable = true\n"
             f'source = "{FIXTURES}"\n'
-            f'alpha = true\n'
-            f'beta = false\n'
-            f'gamma = true\n'
+            f"alpha = true\n"
+            f"beta = false\n"
+            f"gamma = true\n"
         )
 
         cmd_sync(file=str(local_env.toml_path))
@@ -149,13 +149,13 @@ class TestSyncEditableSelective:
         (local_env.skills_dir / "beta").symlink_to(FIXTURES / "beta")
 
         local_env.toml_path.write_text(
-            f'[skills]\n'
+            f"[skills]\n"
             f'[skills."editable-skills"]\n'
-            f'editable = true\n'
+            f"editable = true\n"
             f'source = "{FIXTURES}"\n'
-            f'alpha = true\n'
-            f'beta = false\n'
-            f'gamma = true\n'
+            f"alpha = true\n"
+            f"beta = false\n"
+            f"gamma = true\n"
         )
 
         cmd_sync(file=str(local_env.toml_path))

@@ -36,7 +36,6 @@ from skillset.paths import (
     get_local_skillset_path,
     get_project_commands_dir,
     get_project_skills_dir,
-    require_project_dir,
     update_skillset_skills,
 )
 from skillset.repo import (
@@ -321,7 +320,11 @@ def cmd_add(
     if interactive:
         available_skills = find_skills(source_dir)
         if available_skills:
-            installed = {p.name for p in skills_dir.iterdir() if is_managed(p)} if skills_dir.exists() else set()
+            installed = (
+                {p.name for p in skills_dir.iterdir() if is_managed(p)}
+                if skills_dir.exists()
+                else set()
+            )
             selected = fzf_select_skills(available_skills, source_dir, installed)
             linked_skills = link_skills(
                 source_dir, skills_dir, only=set(selected), copy=use_copy, source_label=source_label
@@ -357,12 +360,18 @@ def cmd_add(
             print(f"  - {skill_name}")
 
     # Link commands (local project or global)
-    commands_dir = (skillset_root / ".claude" / "commands") if is_local else get_global_commands_dir()
+    if is_local:
+        commands_dir = skillset_root / ".claude" / "commands"
+    else:
+        commands_dir = get_global_commands_dir()
     if interactive:
         available_commands = find_commands(source_dir)
         if available_commands:
-            selected_cmds = fzf_select(sorted(c.name for c in available_commands), prompt="Commands> ")
-            linked_commands = link_commands(source_dir, commands_dir, only=set(selected_cmds), copy=use_copy)
+            cmd_names = sorted(c.name for c in available_commands)
+            selected_cmds = fzf_select(cmd_names, prompt="Commands> ")
+            linked_commands = link_commands(
+                source_dir, commands_dir, only=set(selected_cmds), copy=use_copy
+            )
         else:
             linked_commands = []
     else:
@@ -440,7 +449,11 @@ def cmd_remove(*, name: str | None = None, g: bool = False, interactive: bool = 
         skills_dir = get_global_skills_dir()
 
     if interactive:
-        installed = sorted(p.name for p in skills_dir.iterdir() if is_managed(p)) if skills_dir.exists() else []
+        installed = (
+            sorted(p.name for p in skills_dir.iterdir() if is_managed(p))
+            if skills_dir.exists()
+            else []
+        )
         if not installed:
             print(f"No managed skills in {abbrev(skills_dir)}")
             return
@@ -463,9 +476,7 @@ def cmd_remove(*, name: str | None = None, g: bool = False, interactive: bool = 
             print(f"No skills in {abbrev(skills_dir)}")
             sys.exit(1)
         matched = sorted(
-            p.name
-            for p in skills_dir.iterdir()
-            if fnmatch.fnmatch(p.name, name) and is_managed(p)
+            p.name for p in skills_dir.iterdir() if fnmatch.fnmatch(p.name, name) and is_managed(p)
         )
         if not matched:
             print(f"No managed skills matching '{name}' in {abbrev(skills_dir)}")
@@ -530,20 +541,18 @@ def cmd_update(
         target_dir = repo_dir / subpath if subpath else repo_dir
 
         skillset_root = find_skillset_root()
-        skills_dir = (
-            get_global_skills_dir()
-            if scope == "global"
-            else (skillset_root / ".claude" / "skills" if skillset_root else get_global_skills_dir())
-        )
+        if scope == "global" or not skillset_root:
+            skills_dir = get_global_skills_dir()
+        else:
+            skills_dir = skillset_root / ".claude" / "skills"
         linked_skills = link_skills(
             target_dir, skills_dir, copy=use_copy, existing_only=existing_only
         )
 
-        commands_dir = (
-            get_global_commands_dir()
-            if scope == "global"
-            else (skillset_root / ".claude" / "commands" if skillset_root else get_global_commands_dir())
-        )
+        if scope == "global" or not skillset_root:
+            commands_dir = get_global_commands_dir()
+        else:
+            commands_dir = skillset_root / ".claude" / "commands"
         linked_commands = link_commands(
             target_dir, commands_dir, copy=use_copy, existing_only=existing_only
         )
@@ -571,16 +580,14 @@ def cmd_update(
                     if scope == "local" and update_skillset_root is None and get_git_root() is None:
                         print(f"  Skipping {repo_key} (local scope, not in a git repo)")
                         continue
-                    skills_dir = (
-                        get_global_skills_dir()
-                        if scope == "global"
-                        else (update_skillset_root / ".claude" / "skills" if update_skillset_root else get_global_skills_dir())
-                    )
-                    commands_dir = (
-                        get_global_commands_dir()
-                        if scope == "global"
-                        else (update_skillset_root / ".claude" / "commands" if update_skillset_root else get_global_commands_dir())
-                    )
+                    if scope == "global" or not update_skillset_root:
+                        skills_dir = get_global_skills_dir()
+                    else:
+                        skills_dir = update_skillset_root / ".claude" / "skills"
+                    if scope == "global" or not update_skillset_root:
+                        commands_dir = get_global_commands_dir()
+                    else:
+                        commands_dir = update_skillset_root / ".claude" / "commands"
                     total_skills += len(
                         link_skills(
                             source_dir, skills_dir, copy=use_copy, existing_only=existing_only
@@ -909,8 +916,10 @@ def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
             # Record install for tracking
             if not editable:
                 record_install(
-                    f"{owner}/{repo_name}", subpath=path_str,
-                    copy=use_copy, scope=scope,
+                    f"{owner}/{repo_name}",
+                    subpath=path_str,
+                    copy=use_copy,
+                    scope=scope,
                 )
 
         else:
@@ -925,7 +934,8 @@ def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
             for name in names:
                 print(f"  {name}")
 
-            choice = input("\nAdd [a]ll / [i]gnore all / [s]elect individually? [a/i/s] ").strip().lower()
+            prompt = "\nAdd [a]ll / [i]gnore all / [s]elect individually? [a/i/s] "
+            choice = input(prompt).strip().lower()
 
             if choice in ("a", "all"):
                 decisions = {name: True for name in names}
