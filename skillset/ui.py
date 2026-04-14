@@ -1,5 +1,7 @@
-"""UI helpers — prompts, local path handling."""
+"""UI helpers — prompts, local path handling, fzf integration."""
 
+import subprocess
+import sys
 from pathlib import Path
 
 from skillset.discovery import find_skills
@@ -51,6 +53,58 @@ def find_editable_skill(skill_name: str) -> tuple[Path, str] | None:
             if skill.name == skill_name:
                 return search_dir, key
     return None
+
+
+def fzf_select(items: list[str], prompt: str = "Select> ") -> list[str]:
+    """Run fzf for multi-select; returns selected items."""
+    input_text = "\n".join(items)
+    result = subprocess.run(
+        ["fzf", "--multi", "--prompt", prompt, "--header", "Tab to select, Enter to confirm"],
+        input=input_text,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode not in (0, 1):
+        print("fzf not found or failed", file=sys.stderr)
+        sys.exit(1)
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def fzf_select_skills(skills: list[Path], repo_dir: Path, installed: set[str]) -> list[str]:
+    """Interactive skill selection with group drill-down. Marks installed skills with *."""
+    groups: dict[str, list[str]] = {}
+    for skill in skills:
+        group = skill.parent.name
+        groups.setdefault(group, []).append(skill.name)
+
+    def mark(name: str) -> str:
+        return f"* {name}" if name in installed else f"  {name}"
+
+    def unmark(item: str) -> str:
+        return item.lstrip("* ").strip()
+
+    def make_items(names: list[str]) -> list[str]:
+        return [mark(n) for n in sorted(names)]
+
+    if len(groups) <= 1:
+        items = make_items(next(iter(groups.values()))) if groups else []
+        selected = fzf_select(items, prompt="Skills> ")
+        return [unmark(s) for s in selected]
+
+    # Show default group flat, others as [group] entries
+    default = "skills" if "skills" in groups else sorted(groups)[0]
+    items = make_items(groups[default]) + sorted(f"[{g}]" for g in groups if g != default)
+    selected = fzf_select(items, prompt="Skills> ")
+
+    result = []
+    for item in selected:
+        if item.startswith("[") and item.endswith("]"):
+            group_name = item[1:-1]
+            sub = fzf_select(make_items(groups[group_name]), prompt=f"{group_name}> ")
+            result.extend(unmark(s) for s in sub)
+        else:
+            result.append(unmark(item))
+    return result
 
 
 def prompt_skill_selection(available: list[Path]) -> tuple[set[str] | None, dict[str, bool] | None]:

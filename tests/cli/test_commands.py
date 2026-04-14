@@ -41,7 +41,20 @@ def test_add_with_options():
 def test_remove_invokes_cmd_remove():
     with patch("skillset.cli.cmd_remove") as mock:
         runner.invoke(app, ["remove", "skill-a"])
-        mock.assert_called_once_with(name="skill-a", g=False)
+        mock.assert_called_once_with(name="skill-a", g=False, interactive=False)
+
+
+def test_add_interactive_flag():
+    with patch("skillset.cli.cmd_add") as mock:
+        runner.invoke(app, ["add", "-i"])
+        kwargs = mock.call_args[1]
+        assert kwargs["interactive"] is True
+
+
+def test_remove_interactive_flag():
+    with patch("skillset.cli.cmd_remove") as mock:
+        runner.invoke(app, ["remove", "-i"])
+        mock.assert_called_once_with(name=None, g=False, interactive=True)
 
 
 def test_update_invokes_cmd_update():
