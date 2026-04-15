@@ -27,7 +27,8 @@ def test_exits_if_already_exists(env):
         cmd_init(g=True)
 
 
-def test_local_exits_outside_git(env, monkeypatch):
+def test_local_outside_git_creates_in_cwd(env, monkeypatch, tmp_path):
     monkeypatch.setattr("skillset.paths.get_git_root", lambda: None)
-    with pytest.raises(SystemExit):
-        cmd_init()
+    monkeypatch.chdir(tmp_path)
+    cmd_init()
+    assert (tmp_path / "skillset.toml").exists()
