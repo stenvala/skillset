@@ -16,7 +16,6 @@ from skillset.paths import (
     update_skillset_skills,
 )
 from skillset.repo import clone_or_pull, parse_repo_spec
-from skillset.ui import register_local_lib
 
 
 def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
@@ -200,7 +199,6 @@ def _resolve_editable_source(repo_key, source_str, path_str, owner, repo_name):
         else:
             print(f"  Source not found: {source_str}")
         return None, None, None, None
-    register_local_lib(base_dir)
     return source_dir, base_dir, owner, repo_name
 
 
