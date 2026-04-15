@@ -1,5 +1,7 @@
 """Sync respects skill selections in editable entries."""
 
+import shutil
+
 from skillset.commands import cmd_sync
 
 from .conftest import FIXTURES, installed_skills
@@ -43,3 +45,36 @@ class TestSyncEditableSelective:
         cmd_sync(file=str(local_env.toml_path))
 
         assert not (local_env.skills_dir / "beta").exists()
+
+    def test_sync_removes_stale_symlink_when_skill_deleted_from_source(
+        self, local_env, tmp_path, capsys
+    ):
+        """If an enabled skill is removed from the source dir, its symlink is cleaned up."""
+        editable_dir = tmp_path / "editable-skills"
+        shutil.copytree(FIXTURES, editable_dir)
+
+        local_env.toml_path.write_text(
+            f"[skills]\n"
+            f'[skills."editable-skills"]\n'
+            f"editable = true\n"
+            f'source = "{editable_dir}"\n'
+            f"alpha = true\n"
+            f"beta = true\n"
+            f"gamma = true\n"
+        )
+
+        cmd_sync(file=str(local_env.toml_path))
+        assert installed_skills(local_env.skills_dir) == {"alpha", "beta", "gamma"}
+
+        # Remove beta from the source directory
+        shutil.rmtree(editable_dir / "beta")
+
+        cmd_sync(file=str(local_env.toml_path))
+
+        installed = installed_skills(local_env.skills_dir)
+        assert "alpha" in installed
+        assert "gamma" in installed
+        assert "beta" not in installed
+
+        output = capsys.readouterr().out
+        assert "removed from source" in output
