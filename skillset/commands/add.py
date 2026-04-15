@@ -104,7 +104,9 @@ def _link_skills_for_add(
     skill_selections = None
 
     if interactive:
-        linked = _link_interactive_skills(source_dir, skills_dir, use_copy, source_label)
+        linked, skill_selections = _link_interactive_skills(
+            source_dir, skills_dir, use_copy, source_label
+        )
     elif skill_filter is not None:
         available_skills = find_skills(source_dir)
         available_names = {s.name for s in available_skills}
@@ -125,21 +127,24 @@ def _link_skills_for_add(
 
 
 def _link_interactive_skills(source_dir, skills_dir, use_copy, source_label):
-    """Link skills selected via fzf."""
+    """Link skills selected via fzf. Returns (linked, selections)."""
     available_skills = find_skills(source_dir)
     if not available_skills:
-        return []
+        return [], None
     installed = (
         {p.name for p in skills_dir.iterdir() if is_managed(p)} if skills_dir.exists() else set()
     )
-    selected = fzf_select_skills(available_skills, source_dir, installed)
-    return link_skills(
+    selected = set(fzf_select_skills(available_skills, source_dir, installed))
+    available_names = {s.name for s in available_skills}
+    skill_selections = {name: name in selected for name in available_names}
+    linked = link_skills(
         source_dir,
         skills_dir,
-        only=set(selected),
+        only=selected,
         copy=use_copy,
         source_label=source_label,
     )
+    return linked, skill_selections
 
 
 def _link_prompted_skills(source_dir, skills_dir, use_copy, source_label, toml_key):
