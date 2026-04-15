@@ -50,15 +50,15 @@ skillset add vivainio/agent-skills --no-cache   # clone to temp dir, copy, then 
 
 `--copy` is useful on Windows without admin privileges. `--no-cache` avoids keeping a local clone.
 
-### Add editable skills from a local path
+### Add skills from a local path
 
 ```bash
-skillset add /path/to/skills-dir -e              # all editable skills from dir
-skillset add /path/to/skills-dir -e -s zaira     # specific editable skill
-skillset add zaira -e                            # look up in registered editable sources
+skillset add /path/to/skills-dir                 # all skills from local dir
+skillset add /path/to/skills-dir -s zaira        # specific skill from local dir
+skillset add zaira                               # look up by name in all sources
 ```
 
-Editable skills link directly from a local directory (no cache). The source is registered in `~/.claude/skillset.toml` so `skillset sync` can find it later. Once a source is registered, you can add individual skills by name with `-e`.
+Local paths are auto-detected and registered as editable in `skillset.toml` so `skillset sync` can find them later. When adding by skill name, all sources (editable entries and cached repos) are searched. If a skill exists in multiple sources, you'll be prompted to choose.
 
 ### Try skills temporarily
 

@@ -11,7 +11,7 @@ class TestAddGlobalForce:
     def test_global_flag_installs_to_global_dir(self, local_env):
         """With -g, skills go to global dir even when local skillset.toml exists."""
         with patch("builtins.input", return_value="y"):
-            cmd_add(repo=str(FIXTURES), editable=True, g=True)
+            cmd_add(repo=str(FIXTURES), g=True)
 
         global_skills = local_env.home / ".claude" / "skills"
         assert ALL_SKILLS.issubset(installed_skills(global_skills))

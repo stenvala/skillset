@@ -34,7 +34,6 @@ def cmd_add(
     subpath: str | None = None,
     copy: bool = False,
     no_cache: bool = False,
-    editable: bool = False,
     trial: bool = False,
     interactive: bool = False,
 ) -> None:
@@ -52,7 +51,7 @@ def cmd_add(
         source_label,
         skills,
         subpath,
-    ) = _resolve_source(repo, interactive, editable, skills, subpath, no_cache)
+    ) = _resolve_source(repo, interactive, skills, subpath, no_cache)
     if repo is None:
         return
 

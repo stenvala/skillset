@@ -26,16 +26,28 @@ def register_local_lib(repo_dir: Path) -> None:
     create_dir_link(link_path, repo_dir)
 
 
-def find_editable_skill(skill_name: str) -> tuple[Path, str] | None:
-    """Search registered editable sources in global skillset.toml for a skill by name.
+def find_skill(skill_name: str) -> list[tuple[Path, str, str | None, bool]]:
+    """Search all sources for a skill by name.
 
-    Returns (source_dir, toml_key) or None.
+    Searches editable sources in global skillset.toml and cached repos.
+    Returns list of (source_dir, toml_key, toml_source, is_editable) tuples.
     """
+    matches: list[tuple[Path, str, str | None, bool]] = []
+    seen_dirs: set[str] = set()
+
+    _search_editable_sources(skill_name, matches, seen_dirs)
+    _search_cached_repos(skill_name, matches, seen_dirs)
+
+    return matches
+
+
+def _search_editable_sources(skill_name, matches, seen_dirs):
+    """Search editable entries in global skillset.toml for a skill."""
     import tomllib
 
     toml_path = get_global_skillset_path()
     if not toml_path.exists():
-        return None
+        return
     with open(toml_path, "rb") as f:
         config = tomllib.load(f)
     for key, value in config.get("skills", {}).items():
@@ -49,10 +61,34 @@ def find_editable_skill(skill_name: str) -> tuple[Path, str] | None:
         search_dir = source_dir / path_str if path_str else source_dir
         if not search_dir.is_dir():
             continue
-        for skill in find_skills(search_dir):
-            if skill.name == skill_name:
-                return search_dir, key
-    return None
+        if _has_skill(search_dir, skill_name):
+            seen_dirs.add(str(search_dir))
+            toml_source = str(search_dir).replace("\\", "/")
+            matches.append((search_dir, key, toml_source, True))
+
+
+def _search_cached_repos(skill_name, matches, seen_dirs):
+    """Search cached repos for a skill."""
+    cache_dir = get_cache_dir()
+    if not cache_dir.exists():
+        return
+    for owner_dir in sorted(cache_dir.iterdir()):
+        if not owner_dir.is_dir() or owner_dir.name == "local":
+            continue
+        for repo_dir in sorted(owner_dir.iterdir()):
+            if not repo_dir.is_dir():
+                continue
+            actual_dir = repo_dir.resolve() if is_link(repo_dir) else repo_dir
+            if str(actual_dir) in seen_dirs:
+                continue
+            if _has_skill(actual_dir, skill_name):
+                toml_key = f"{owner_dir.name}/{repo_dir.name}"
+                matches.append((actual_dir, toml_key, None, False))
+
+
+def _has_skill(directory: Path, skill_name: str) -> bool:
+    """Check if a directory contains a skill with the given name."""
+    return any(s.name == skill_name for s in find_skills(directory))
 
 
 def fzf_select(items: list[str], prompt: str = "Select> ") -> list[str]:
