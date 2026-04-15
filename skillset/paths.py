@@ -149,9 +149,10 @@ def update_skillset_skills(
     add_enabled: list[str] | None = None,
     add_disabled: list[str] | None = None,
 ) -> bool:
-    """Append skill names to the enabled/disabled arrays of an existing [skills."repo"] sub-table.
+    """Fold skill names into the enabled/disabled arrays of an existing sub-table.
 
-    Creates the arrays if they don't exist. Preserves other keys and surrounding content.
+    Move semantics: names added to `enabled` are removed from `disabled` and
+    vice versa, so a skill is never listed in both. Dedupes within a list.
     Returns True if the file was modified.
     """
     add_enabled = add_enabled or []
@@ -173,29 +174,64 @@ def update_skillset_skills(
     section_end = section_start + next_header.start() if next_header else len(content)
     section = content[section_start:section_end]
 
-    section = _merge_str_list(section, "enabled", add_enabled)
-    section = _merge_str_list(section, "disabled", add_disabled)
+    new_section = section
+    new_section, a = _rewrite_list(new_section, "enabled", lambda xs: _add_unique(xs, add_enabled))
+    new_section, b = _rewrite_list(new_section, "disabled", lambda xs: _remove(xs, add_enabled))
+    new_section, c = _rewrite_list(
+        new_section, "disabled", lambda xs: _add_unique(xs, add_disabled)
+    )
+    new_section, d = _rewrite_list(new_section, "enabled", lambda xs: _remove(xs, add_disabled))
+    if not (a or b or c or d):
+        return False
 
-    toml_path.write_text(content[:section_start] + section + content[section_end:])
+    toml_path.write_text(content[:section_start] + new_section + content[section_end:])
     return True
 
 
-def _merge_str_list(section: str, key: str, additions: list[str]) -> str:
-    """Append items to a string-array key within a sub-table section. Create if missing."""
-    if not additions:
-        return section
-    new_items = ", ".join(f'"{s}"' for s in additions)
+def _parse_list_body(body: str) -> list[str]:
+    """Extract double-quoted names from a TOML array body."""
+    return re.findall(r'"([^"]*)"', body)
+
+
+def _add_unique(existing: list[str], additions: list[str]) -> list[str]:
+    """Append items not already in existing. Preserves order."""
+    out = list(existing)
+    for name in additions:
+        if name not in out:
+            out.append(name)
+    return out
+
+
+def _remove(existing: list[str], removals: list[str]) -> list[str]:
+    """Remove items from existing."""
+    if not removals:
+        return existing
+    drop = set(removals)
+    return [n for n in existing if n not in drop]
+
+
+def _rewrite_list(section: str, key: str, mutate) -> tuple[str, bool]:
+    """Find `key = [...]` in section and apply `mutate(names) -> names`.
+
+    Returns (section, changed). If the key is missing and mutate returns a
+    non-empty list, the assignment is appended to the section.
+    """
     pattern = re.compile(rf"^{key}\s*=\s*\[([^\]]*)\]\s*$", re.MULTILINE)
     match = pattern.search(section)
     if match:
-        existing = match.group(1).strip().rstrip(",").strip()
-        body = f"{existing}, {new_items}" if existing else new_items
-        return section[: match.start()] + f"{key} = [{body}]" + section[match.end() :]
-    # No existing array — append after other keys in this section.
+        current = _parse_list_body(match.group(1))
+        updated = mutate(current)
+        if updated == current:
+            return section, False
+        replacement = _format_str_list(key, updated)
+        return section[: match.start()] + replacement + section[match.end() :], True
+    updated = mutate([])
+    if not updated:
+        return section, False
     trailing_ws = len(section) - len(section.rstrip("\n"))
     body = section.rstrip("\n")
     suffix = "\n" * max(trailing_ws, 1)
-    return f"{body}\n{key} = [{new_items}]{suffix}"
+    return f"{body}\n{_format_str_list(key, updated)}{suffix}", True
 
 
 def require_project_dir(path: Path | None, kind: str = "project") -> Path:

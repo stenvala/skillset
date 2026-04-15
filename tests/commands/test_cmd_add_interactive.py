@@ -73,6 +73,38 @@ def test_interactive_with_repo_selects_commands(env, source_repo, capsys):
     assert (commands_dir / "do-thing.md").is_symlink()
 
 
+def test_interactive_second_add_updates_toml(env, source_repo, capsys):
+    """Adding a new skill from an already-registered source folds it into enabled."""
+    import tomllib
+
+    toml_path = env.home / ".claude" / "skillset.toml"
+    toml_path.write_text("[skills]\n")
+
+    # First add: select skill-a. skill-b lands in disabled.
+    with patch("skillset.commands.add.fzf_select_skills", return_value=["skill-a"]):
+        with patch("skillset.commands.add.fzf_select", return_value=[]):
+            cmd_add(repo=str(source_repo), interactive=True)
+
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+    entry_key = next(iter(config["skills"]))
+    entry = config["skills"][entry_key]
+    assert entry["enabled"] == ["skill-a"]
+    assert entry.get("disabled") == ["skill-b"]
+
+    # Second add: select skill-b. It should move from disabled to enabled.
+    with patch("skillset.commands.add.fzf_select_skills", return_value=["skill-b"]):
+        with patch("skillset.commands.add.fzf_select", return_value=[]):
+            cmd_add(repo=str(source_repo), interactive=True)
+
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+    entry = config["skills"][entry_key]
+    assert "skill-a" in entry["enabled"]
+    assert "skill-b" in entry["enabled"]
+    assert "skill-b" not in entry.get("disabled", [])
+
+
 def test_interactive_no_available_skills(env, tmp_path, capsys):
     """Interactive mode with repo that has no skills."""
     empty = tmp_path / "empty"

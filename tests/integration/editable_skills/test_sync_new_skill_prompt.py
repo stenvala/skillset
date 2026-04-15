@@ -45,7 +45,7 @@ class TestSyncEditableNewSkillPrompt:
         assert not (local_env.skills_dir / "gamma" / "SKILL.md").exists()
         with open(local_env.toml_path, "rb") as f:
             config = tomllib.load(f)
-        entry = config["skills"]["fixtures"]
+        entry = config["skills"]["editable_skills/fixtures"]
         assert "gamma" in entry.get("disabled", [])
 
         output = capsys.readouterr().out
@@ -60,7 +60,7 @@ class TestSyncEditableNewSkillPrompt:
 
         with open(local_env.toml_path, "rb") as f:
             config = tomllib.load(f)
-        entry = config["skills"]["fixtures"]
+        entry = config["skills"]["editable_skills/fixtures"]
         assert entry["editable"] is True
         assert "alpha" in entry["enabled"]
         assert "gamma" in entry["enabled"]

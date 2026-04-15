@@ -14,7 +14,6 @@ from skillset.linking import is_managed, link_commands, link_skills
 from skillset.manifest import record_install
 from skillset.paths import (
     abbrev,
-    add_to_global_skillset,
     add_to_skillset,
     find_skillset_root,
     get_cache_dir,
@@ -22,6 +21,7 @@ from skillset.paths import (
     get_global_skills_dir,
     get_global_skillset_path,
     get_local_skillset_path,
+    update_skillset_skills,
 )
 from skillset.ui import fzf_select, fzf_select_skills, prompt_skill_selection
 
@@ -79,6 +79,7 @@ def cmd_add(
         _record_install(repo_dir, subpath, use_copy, is_local, trial, skills)
 
     if toml_key and (linked_skills or linked_commands) and not trial:
+        _ensure_toml_exists(is_editable, is_local, skillset_root)
         _register_in_toml(
             toml_key,
             subpath,
@@ -208,6 +209,20 @@ def _record_install(repo_dir, subpath, use_copy, is_local, trial, skills):
     )
 
 
+def _ensure_toml_exists(is_editable, is_local, skillset_root):
+    """Create skillset.toml if missing and we're about to write to it.
+
+    Only auto-creates for editable sources -- otherwise `add` should fail loudly
+    when there's no toml, to nudge the user toward `skillset init` first.
+    """
+    if not is_editable:
+        return
+    toml_path = (skillset_root / "skillset.toml") if is_local else get_global_skillset_path()
+    if not toml_path.exists():
+        toml_path.parent.mkdir(parents=True, exist_ok=True)
+        toml_path.write_text("[skills]\n")
+
+
 def _register_in_toml(
     toml_key,
     subpath,
@@ -218,31 +233,35 @@ def _register_in_toml(
     is_local,
     skillset_root,
 ):
-    """Register skill in skillset.toml."""
-    if is_local:
-        local_toml = skillset_root / "skillset.toml"
-        written = add_to_skillset(
-            local_toml,
-            toml_key,
-            path=subpath,
-            enabled=enabled,
-            disabled=disabled,
-            editable=is_editable,
-            source=toml_source,
-        )
-        if written:
-            print(f"Added to {abbrev(local_toml)}")
-    else:
-        written = add_to_global_skillset(
-            toml_key,
-            path=subpath,
-            enabled=enabled,
-            disabled=disabled,
-            editable=is_editable,
-            source=toml_source,
-        )
-        if written:
-            print(f"Added to {abbrev(get_global_skillset_path())}")
+    """Register or update skillset.toml entry for this repo."""
+    toml_path = (skillset_root / "skillset.toml") if is_local else get_global_skillset_path()
+
+    written = add_to_skillset(
+        toml_path,
+        toml_key,
+        path=subpath,
+        enabled=enabled,
+        disabled=disabled,
+        editable=is_editable,
+        source=toml_source,
+    )
+    if written:
+        print(f"Added to {abbrev(toml_path)}")
+        return
+
+    # Repo already registered -- fold new selections into existing enabled list.
+    # Newly-enabled names should also leave the disabled list if they were there.
+    if enabled and "*" in enabled:
+        return  # nothing sensible to fold when the user asked for "all"
+    if not enabled:
+        return
+    updated = update_skillset_skills(
+        toml_path,
+        toml_key,
+        add_enabled=enabled,
+    )
+    if updated:
+        print(f"Updated {abbrev(toml_path)}")
 
 
 def cmd_init(*, g: bool = False) -> None:
