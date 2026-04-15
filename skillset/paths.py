@@ -195,6 +195,38 @@ def update_skillset_skills(
     return False
 
 
+def update_skillset_entries(
+    toml_path: Path,
+    repo_key: str,
+    skills: dict[str, bool],
+) -> bool:
+    """Update existing skill entries in a skillset.toml section.
+
+    Changes values of already-listed skills (e.g. false -> true).
+    Only updates entries within the matching repo section.
+    Returns True if the file was modified.
+    """
+    if not toml_path.exists() or not skills:
+        return False
+
+    content = toml_path.read_text()
+    modified = False
+    for name, enabled in skills.items():
+        value = "true" if enabled else "false"
+        pattern = re.compile(
+            rf"^({re.escape(name)}\s*=\s*)(true|false)\s*$",
+            re.MULTILINE,
+        )
+        new_content = pattern.sub(rf"\g<1>{value}", content)
+        if new_content != content:
+            content = new_content
+            modified = True
+
+    if modified:
+        toml_path.write_text(content)
+    return modified
+
+
 def require_project_dir(path: Path | None, kind: str = "project") -> Path:
     """Return path if set, or exit with error if not in a git repo."""
     if path is None:
