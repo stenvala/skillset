@@ -14,7 +14,6 @@ from skillset.linking import is_managed, link_commands, link_skills
 from skillset.manifest import record_install
 from skillset.paths import (
     abbrev,
-    add_to_global_skillset,
     add_to_skillset,
     find_skillset_root,
     get_cache_dir,
@@ -22,6 +21,7 @@ from skillset.paths import (
     get_global_skills_dir,
     get_global_skillset_path,
     get_local_skillset_path,
+    update_skillset_entries,
 )
 from skillset.ui import fzf_select, fzf_select_skills, prompt_skill_selection
 
@@ -233,27 +233,26 @@ def _register_in_toml(
 ):
     """Register skill in skillset.toml."""
     if is_local:
-        local_toml = skillset_root / "skillset.toml"
-        written = add_to_skillset(
-            local_toml,
-            toml_key,
-            path=subpath,
-            skills=skill_selections,
-            editable=is_editable,
-            source=toml_source,
-        )
-        if written:
-            print(f"Added to {abbrev(local_toml)}")
+        toml_path = skillset_root / "skillset.toml"
     else:
-        written = add_to_global_skillset(
-            toml_key,
-            path=subpath,
-            skills=skill_selections,
-            editable=is_editable,
-            source=toml_source,
-        )
-        if written:
-            print(f"Added to {abbrev(get_global_skillset_path())}")
+        toml_path = get_global_skillset_path()
+
+    written = add_to_skillset(
+        toml_path,
+        toml_key,
+        path=subpath,
+        skills=skill_selections,
+        editable=is_editable,
+        source=toml_source,
+    )
+    if written:
+        print(f"Added to {abbrev(toml_path)}")
+    elif skill_selections:
+        # Only update newly enabled skills — don't downgrade existing true entries
+        enabled = {k: v for k, v in skill_selections.items() if v}
+        updated = update_skillset_entries(toml_path, toml_key, enabled)
+        if updated:
+            print(f"Updated {abbrev(toml_path)}")
 
 
 def cmd_init(*, g: bool = False) -> None:

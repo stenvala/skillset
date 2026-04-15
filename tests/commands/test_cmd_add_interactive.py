@@ -73,6 +73,30 @@ def test_interactive_with_repo_selects_commands(env, source_repo, capsys):
     assert (commands_dir / "do-thing.md").is_symlink()
 
 
+def test_interactive_second_add_updates_toml(env, source_repo, capsys):
+    """Adding a new skill from an already-registered source updates toml."""
+    toml_path = env.home / ".claude" / "skillset.toml"
+    toml_path.write_text("[skills]\n")
+
+    # First add: select skill-a
+    with patch("skillset.commands.add.fzf_select_skills", return_value=["skill-a"]):
+        with patch("skillset.commands.add.fzf_select", return_value=[]):
+            cmd_add(repo=str(source_repo), interactive=True)
+
+    content = toml_path.read_text()
+    assert "skill-a = true" in content
+    assert "skill-b = false" in content
+
+    # Second add: select skill-b
+    with patch("skillset.commands.add.fzf_select_skills", return_value=["skill-b"]):
+        with patch("skillset.commands.add.fzf_select", return_value=[]):
+            cmd_add(repo=str(source_repo), interactive=True)
+
+    content = toml_path.read_text()
+    assert "skill-a = true" in content
+    assert "skill-b = true" in content
+
+
 def test_interactive_no_available_skills(env, tmp_path, capsys):
     """Interactive mode with repo that has no skills."""
     empty = tmp_path / "empty"
