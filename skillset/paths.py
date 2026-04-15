@@ -78,11 +78,17 @@ def add_to_skillset(
     repo_key: str,
     *,
     path: str | None = None,
-    skills: dict[str, bool] | None = None,
+    enabled: list[str] | None = None,
+    disabled: list[str] | None = None,
     editable: bool = False,
     source: str | None = None,
 ) -> bool:
-    """Append a repo entry to a skillset.toml file if it exists. Returns True if written."""
+    """Append a [skills."repo"] sub-table to a skillset.toml file. Returns True if written.
+
+    Skill selection is expressed as two lists:
+      enabled = ["skill-a", "skill-b"]   # or ["*"] for all
+      disabled = ["skill-c"]              # explicit opt-outs (skipped by sync)
+    """
     if not toml_path.exists():
         return False
 
@@ -90,20 +96,18 @@ def add_to_skillset(
     if f'"{repo_key}"' in content or f"'{repo_key}'" in content:
         return False
 
-    if editable or path or skills:
-        lines = [f'[skills."{repo_key}"]']
-        if editable:
-            lines.append("editable = true")
-        if source:
-            lines.append(f'source = "{source}"')
-        if path:
-            lines.append(f'path = "{path}"')
-        if skills:
-            for name, enabled in sorted(skills.items()):
-                lines.append(f"{name} = {'true' if enabled else 'false'}")
-        entry = "\n".join(lines) + "\n"
-    else:
-        entry = f'"{repo_key}" = true\n'
+    lines = [f'[skills."{repo_key}"]']
+    if editable:
+        lines.append("editable = true")
+    if source:
+        lines.append(f'source = "{source}"')
+    if path:
+        lines.append(f'path = "{path}"')
+    if enabled is not None:
+        lines.append(_format_str_list("enabled", enabled))
+    if disabled:
+        lines.append(_format_str_list("disabled", disabled))
+    entry = "\n".join(lines) + "\n"
 
     toml_path.write_text(content.rstrip() + "\n" + entry)
     return True
@@ -113,7 +117,8 @@ def add_to_global_skillset(
     repo_key: str,
     *,
     path: str | None = None,
-    skills: dict[str, bool] | None = None,
+    enabled: list[str] | None = None,
+    disabled: list[str] | None = None,
     editable: bool = False,
     source: str | None = None,
 ) -> bool:
@@ -122,77 +127,75 @@ def add_to_global_skillset(
         get_global_skillset_path(),
         repo_key,
         path=path,
-        skills=skills,
+        enabled=enabled,
+        disabled=disabled,
         editable=editable,
         source=source,
     )
 
 
+def _format_str_list(key: str, items: list[str]) -> str:
+    """Format a string list as a TOML array assignment."""
+    if not items:
+        return f"{key} = []"
+    body = ", ".join(f'"{s}"' for s in items)
+    return f"{key} = [{body}]"
+
+
 def update_skillset_skills(
     toml_path: Path,
     repo_key: str,
-    new_skills: dict[str, bool],
+    *,
+    add_enabled: list[str] | None = None,
+    add_disabled: list[str] | None = None,
 ) -> bool:
-    """Add new skill entries to an existing repo entry in a skillset.toml file.
+    """Append skill names to the enabled/disabled arrays of an existing [skills."repo"] sub-table.
 
-    Supports both inline dict format and sub-table format:
-      Inline:    "repo/key" = {zaira = true, ...}
-      Sub-table: [skills."repo/key"]
-                 zaira = true
+    Creates the arrays if they don't exist. Preserves other keys and surrounding content.
     Returns True if the file was modified.
     """
-    if not toml_path.exists() or not new_skills:
+    add_enabled = add_enabled or []
+    add_disabled = add_disabled or []
+    if not toml_path.exists() or not (add_enabled or add_disabled):
         return False
 
     content = toml_path.read_text()
-    new_lines = [
-        f"{name} = {'true' if enabled else 'false'}" for name, enabled in sorted(new_skills.items())
-    ]
-
-    # Try sub-table format first: [skills."repo/key"]
     header_pattern = re.compile(
-        r'^(\[skills\."' + re.escape(repo_key) + r'"\])\s*$',
+        r'^\[skills\."' + re.escape(repo_key) + r'"\]\s*$',
         re.MULTILINE,
     )
     header_match = header_pattern.search(content)
-    if header_match:
-        # Find the end of this section (next header or EOF)
-        section_end = len(content)
-        next_header = re.search(r"^\[", content[header_match.end() :], re.MULTILINE)
-        if next_header:
-            section_end = header_match.end() + next_header.start()
-        insert_at = content[:section_end].rstrip()
-        content = insert_at + "\n" + "\n".join(new_lines) + "\n" + content[section_end:]
-        toml_path.write_text(content)
-        return True
+    if not header_match:
+        return False
 
-    # Try inline dict format: "repo/key" = {existing content}
-    inline_pattern = re.compile(
-        r'((?:"'
-        + re.escape(repo_key)
-        + r'"|'
-        + "'"
-        + re.escape(repo_key)
-        + r"')\s*=\s*\{)(.*?)(\})",
-        re.DOTALL,
-    )
-    inline_match = inline_pattern.search(content)
-    if inline_match:
-        new_parts = ", ".join(new_lines)
-        prefix = inline_match.group(1)
-        existing = inline_match.group(2).rstrip()
-        suffix = inline_match.group(3)
+    section_start = header_match.end()
+    next_header = re.search(r"^\[", content[section_start:], re.MULTILINE)
+    section_end = section_start + next_header.start() if next_header else len(content)
+    section = content[section_start:section_end]
 
-        if existing:
-            updated = f"{prefix}{existing}, {new_parts}{suffix}"
-        else:
-            updated = f"{prefix}{new_parts}{suffix}"
+    section = _merge_str_list(section, "enabled", add_enabled)
+    section = _merge_str_list(section, "disabled", add_disabled)
 
-        content = content[: inline_match.start()] + updated + content[inline_match.end() :]
-        toml_path.write_text(content)
-        return True
+    toml_path.write_text(content[:section_start] + section + content[section_end:])
+    return True
 
-    return False
+
+def _merge_str_list(section: str, key: str, additions: list[str]) -> str:
+    """Append items to a string-array key within a sub-table section. Create if missing."""
+    if not additions:
+        return section
+    new_items = ", ".join(f'"{s}"' for s in additions)
+    pattern = re.compile(rf"^{key}\s*=\s*\[([^\]]*)\]\s*$", re.MULTILINE)
+    match = pattern.search(section)
+    if match:
+        existing = match.group(1).strip().rstrip(",").strip()
+        body = f"{existing}, {new_items}" if existing else new_items
+        return section[: match.start()] + f"{key} = [{body}]" + section[match.end() :]
+    # No existing array — append after other keys in this section.
+    trailing_ws = len(section) - len(section.rstrip("\n"))
+    body = section.rstrip("\n")
+    suffix = "\n" * max(trailing_ws, 1)
+    return f"{body}\n{key} = [{new_items}]{suffix}"
 
 
 def require_project_dir(path: Path | None, kind: str = "project") -> Path:

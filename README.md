@@ -97,21 +97,31 @@ skillset init -g        # create ~/.claude/skillset.toml (global)
 Manage your global skills declaratively with `~/.claude/skillset.toml`:
 
 ```toml
-[skills]
 # all skills from repo
-"vivainio/agent-skills" = true
+[skills."vivainio/agent-skills"]
+enabled = ["*"]
 
-# selective: enable zaira, disable others explicitly
-"vivainio/agent-skills" = {zaira = true, some-other = false}
+# selective: enable zaira, explicitly skip some-other
+[skills."vivainio/agent-skills"]
+enabled = ["zaira"]
+disabled = ["some-other"]
 
 # skills from a subdirectory
-"vivainio/agent-skills" = {path = "extra-skills"}
+[skills."vivainio/agent-skills"]
+path = "extra-skills"
+enabled = ["*"]
 
 # copy files instead of symlinking
-"vivainio/agent-skills" = {copy = true}
+[skills."vivainio/agent-skills"]
+copy = true
+enabled = ["*"]
 
 # editable: point to a local checkout instead of cache
-"vivainio/agent-skills" = {path = "extra-skills", editable = true, source = "~/repos/agent-skills"}
+[skills."vivainio/agent-skills"]
+path = "extra-skills"
+editable = true
+source = "~/repos/agent-skills"
+enabled = ["*"]
 ```
 
 ```bash
@@ -120,7 +130,7 @@ skillset sync -g                       # force sync global ~/.claude/skillset.to
 skillset sync --file path/to/skillset.toml  # sync a specific file
 ```
 
-`sync` pulls each repo, links skills marked `true`, removes those marked `false`, and reports any new skills in the repo that aren't yet listed in your toml.
+`sync` pulls each repo, links skills in `enabled`, removes those in `disabled`, and prompts for any new skills in the repo that aren't yet listed in either list. `enabled = ["*"]` links every skill (minus anything in `disabled`).
 
 **Editable skills** point to a local checkout instead of the cache. Set `editable = true` with `source` pointing to the local path. Use `path` to select a subdirectory within it.
 
@@ -129,10 +139,18 @@ skillset sync --file path/to/skillset.toml  # sync a specific file
 Declare project-scoped skills and symlinks in a `skillset.toml` file in your repo:
 
 ```toml
-[skills]
-"vivainio/agent-skills" = true                                         # all skills
-"vivainio/agent-skills" = {skills = ["zaira"], local = true}           # specific skills, project scope
-"vivainio/agent-skills" = {path = "extra-skills"}                      # from subdirectory
+# all skills
+[skills."vivainio/agent-skills"]
+enabled = ["*"]
+
+# specific skills
+[skills."vivainio/agent-skills"]
+enabled = ["zaira"]
+
+# from subdirectory
+[skills."vivainio/agent-skills"]
+path = "extra-skills"
+enabled = ["*"]
 
 [links]
 "specs" = "../project-docs/specs"  # create local symlink → sibling repo path

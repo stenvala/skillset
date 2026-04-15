@@ -9,15 +9,13 @@ from .conftest import FIXTURES, installed_skills
 
 class TestSyncEditableSelective:
     def test_sync_only_links_enabled(self, local_env):
-        """Write toml manually with alpha=true, beta=false, gamma=true."""
+        """Write toml manually with alpha+gamma enabled, beta disabled."""
         local_env.toml_path.write_text(
-            f"[skills]\n"
             f'[skills."editable-skills"]\n'
             f"editable = true\n"
             f'source = "{FIXTURES}"\n'
-            f"alpha = true\n"
-            f"beta = false\n"
-            f"gamma = true\n"
+            f'enabled = ["alpha", "gamma"]\n'
+            f'disabled = ["beta"]\n'
         )
 
         cmd_sync(file=str(local_env.toml_path))
@@ -28,18 +26,16 @@ class TestSyncEditableSelective:
         assert "beta" not in installed
 
     def test_sync_removes_disabled_skill(self, local_env):
-        """If beta was previously linked, sync removes it when set to false."""
+        """If beta was previously linked, sync removes it when listed in disabled."""
         local_env.skills_dir.mkdir(parents=True, exist_ok=True)
         (local_env.skills_dir / "beta").symlink_to(FIXTURES / "beta")
 
         local_env.toml_path.write_text(
-            f"[skills]\n"
             f'[skills."editable-skills"]\n'
             f"editable = true\n"
             f'source = "{FIXTURES}"\n'
-            f"alpha = true\n"
-            f"beta = false\n"
-            f"gamma = true\n"
+            f'enabled = ["alpha", "gamma"]\n'
+            f'disabled = ["beta"]\n'
         )
 
         cmd_sync(file=str(local_env.toml_path))
@@ -54,13 +50,10 @@ class TestSyncEditableSelective:
         shutil.copytree(FIXTURES, editable_dir)
 
         local_env.toml_path.write_text(
-            f"[skills]\n"
             f'[skills."editable-skills"]\n'
             f"editable = true\n"
             f'source = "{editable_dir}"\n'
-            f"alpha = true\n"
-            f"beta = true\n"
-            f"gamma = true\n"
+            f'enabled = ["alpha", "beta", "gamma"]\n'
         )
 
         cmd_sync(file=str(local_env.toml_path))

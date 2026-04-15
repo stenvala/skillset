@@ -143,12 +143,15 @@ def fzf_select_skills(skills: list[Path], repo_dir: Path, installed: set[str]) -
     return result
 
 
-def prompt_skill_selection(available: list[Path]) -> tuple[set[str] | None, dict[str, bool] | None]:
+def prompt_skill_selection(
+    available: list[Path],
+) -> tuple[set[str] | None, list[str] | None, list[str] | None]:
     """Prompt user to add all or select individual skills.
 
-    Returns (filter, selections):
-      - (None, None): add all
-      - (set, dict): selective — filter has names to install, dict has all y/n choices
+    Returns (filter, enabled, disabled):
+      - (None, ["*"], None): add all -- wildcard selection
+      - (set, list, list): selective -- filter has names to install now,
+        enabled/disabled are the explicit picks to persist in skillset.toml
     """
     names = sorted(s.name for s in available)
     print(f"\n{len(names)} skill(s) found:")
@@ -157,15 +160,14 @@ def prompt_skill_selection(available: list[Path]) -> tuple[set[str] | None, dict
 
     choice = input(f"\nAdd all {len(names)} skills? [Y/s(elect)] ").strip().lower()
     if choice in ("s", "select"):
-        selected = set()
-        selections: dict[str, bool] = {}
+        enabled: list[str] = []
+        disabled: list[str] = []
         for name in names:
             answer = input(f"  Add {name}? [Y/n] ").strip().lower()
             if answer in ("n", "no"):
-                selections[name] = False
+                disabled.append(name)
             else:
-                selected.add(name)
-                selections[name] = True
-        return selected, selections
-    # Default: add all
-    return None, None
+                enabled.append(name)
+        return set(enabled), enabled, disabled
+    # Default: add all -- wildcard
+    return None, ["*"], None

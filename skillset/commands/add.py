@@ -63,8 +63,8 @@ def cmd_add(
     use_copy = copy or no_cache
     skills_dir = (skillset_root / ".claude" / "skills") if is_local else get_global_skills_dir()
 
-    linked_skills, skill_selections = _link_skills_for_add(
-        source_dir, skills_dir, skills, interactive, use_copy, source_label, toml_key
+    linked_skills, enabled_list, disabled_list = _link_skills_for_add(
+        source_dir, skills_dir, skills, interactive, use_copy, source_label
     )
 
     _print_linked("skill", linked_skills, use_copy, skills_dir)
@@ -82,7 +82,8 @@ def cmd_add(
         _register_in_toml(
             toml_key,
             subpath,
-            skill_selections,
+            enabled_list,
+            disabled_list,
             is_editable,
             toml_source,
             is_local,
@@ -96,21 +97,24 @@ def cmd_add(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _link_skills_for_add(
-    source_dir, skills_dir, skills, interactive, use_copy, source_label, toml_key
-):
-    """Select and link skills. Returns (linked_skills, skill_selections)."""
+def _link_skills_for_add(source_dir, skills_dir, skills, interactive, use_copy, source_label):
+    """Select and link skills. Returns (linked_skills, enabled_list, disabled_list).
+
+    enabled_list / disabled_list are what gets persisted to skillset.toml:
+      - enabled = ["*"] means "link everything in the repo"
+      - explicit lists when the user picked a subset
+      - (None, None) when there were no skills to link at all
+    """
     skill_filter = set(skills) if skills else None
-    skill_selections = None
 
     if interactive:
-        linked, skill_selections = _link_interactive_skills(
-            source_dir, skills_dir, use_copy, source_label
-        )
-    elif skill_filter is not None:
+        return _link_interactive_skills(source_dir, skills_dir, use_copy, source_label)
+
+    if skill_filter is not None:
         available_skills = find_skills(source_dir)
         available_names = {s.name for s in available_skills}
-        skill_selections = {name: name in skill_filter for name in available_names}
+        enabled = sorted(skill_filter & available_names)
+        disabled = sorted(available_names - skill_filter)
         linked = link_skills(
             source_dir,
             skills_dir,
@@ -118,25 +122,23 @@ def _link_skills_for_add(
             copy=use_copy,
             source_label=source_label,
         )
-    else:
-        linked, skill_selections = _link_prompted_skills(
-            source_dir, skills_dir, use_copy, source_label, toml_key
-        )
+        return linked, enabled, disabled
 
-    return linked, skill_selections
+    return _link_prompted_skills(source_dir, skills_dir, use_copy, source_label)
 
 
 def _link_interactive_skills(source_dir, skills_dir, use_copy, source_label):
-    """Link skills selected via fzf. Returns (linked, selections)."""
+    """Link skills selected via fzf. Returns (linked, enabled, disabled)."""
     available_skills = find_skills(source_dir)
     if not available_skills:
-        return [], None
+        return [], None, None
     installed = (
         {p.name for p in skills_dir.iterdir() if is_managed(p)} if skills_dir.exists() else set()
     )
     selected = set(fzf_select_skills(available_skills, source_dir, installed))
     available_names = {s.name for s in available_skills}
-    skill_selections = {name: name in selected for name in available_names}
+    enabled = sorted(selected & available_names)
+    disabled = sorted(available_names - selected)
     linked = link_skills(
         source_dir,
         skills_dir,
@@ -144,15 +146,15 @@ def _link_interactive_skills(source_dir, skills_dir, use_copy, source_label):
         copy=use_copy,
         source_label=source_label,
     )
-    return linked, skill_selections
+    return linked, enabled, disabled
 
 
-def _link_prompted_skills(source_dir, skills_dir, use_copy, source_label, toml_key):
-    """Link skills selected via interactive prompt. Returns (linked, selections)."""
+def _link_prompted_skills(source_dir, skills_dir, use_copy, source_label):
+    """Link skills selected via interactive y/N prompt. Returns (linked, enabled, disabled)."""
     available_skills = find_skills(source_dir)
     if not available_skills:
-        return [], None
-    skill_filter, skill_selections = prompt_skill_selection(available_skills)
+        return [], None, None
+    skill_filter, enabled, disabled = prompt_skill_selection(available_skills)
     linked = link_skills(
         source_dir,
         skills_dir,
@@ -160,9 +162,7 @@ def _link_prompted_skills(source_dir, skills_dir, use_copy, source_label, toml_k
         copy=use_copy,
         source_label=source_label,
     )
-    if skill_selections is None and toml_key:
-        skill_selections = {s.name: True for s in available_skills}
-    return linked, skill_selections
+    return linked, enabled, disabled
 
 
 def _link_commands_for_add(source_dir, commands_dir, interactive, use_copy):
@@ -211,7 +211,8 @@ def _record_install(repo_dir, subpath, use_copy, is_local, trial, skills):
 def _register_in_toml(
     toml_key,
     subpath,
-    skill_selections,
+    enabled,
+    disabled,
     is_editable,
     toml_source,
     is_local,
@@ -224,7 +225,8 @@ def _register_in_toml(
             local_toml,
             toml_key,
             path=subpath,
-            skills=skill_selections,
+            enabled=enabled,
+            disabled=disabled,
             editable=is_editable,
             source=toml_source,
         )
@@ -234,7 +236,8 @@ def _register_in_toml(
         written = add_to_global_skillset(
             toml_key,
             path=subpath,
-            skills=skill_selections,
+            enabled=enabled,
+            disabled=disabled,
             editable=is_editable,
             source=toml_source,
         )

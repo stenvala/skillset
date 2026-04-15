@@ -11,13 +11,13 @@ class TestAddEditableWithSelection:
 
         assert installed_skills(local_env.skills_dir) == {"alpha"}
 
-    def test_toml_has_all_skills_listed(self, local_env):
+    def test_toml_has_enabled_and_disabled_lists(self, local_env):
         cmd_add(repo=str(FIXTURES), skills=["alpha"])
 
         content = local_env.toml_path.read_text()
-        assert "alpha = true" in content
-        assert "beta = false" in content
-        assert "gamma = false" in content
+        assert 'enabled = ["alpha"]' in content
+        assert '"beta"' in content and '"gamma"' in content
+        assert "disabled = [" in content
 
     def test_toml_has_editable_and_source(self, local_env):
         cmd_add(repo=str(FIXTURES), skills=["alpha"])
@@ -31,6 +31,6 @@ class TestAddEditableWithSelection:
 
         assert installed_skills(local_env.skills_dir) == {"alpha", "gamma"}
         content = local_env.toml_path.read_text()
-        assert "alpha = true" in content
-        assert "beta = false" in content
-        assert "gamma = true" in content
+        assert '"alpha"' in content and '"gamma"' in content
+        assert "enabled = [" in content
+        assert 'disabled = ["beta"]' in content

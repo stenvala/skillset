@@ -4,11 +4,20 @@ GLOBAL_SKILLSET_TEMPLATE = """\
 # Global skillset configuration (~/.claude/skillset.toml)
 # Skills are installed to ~/.claude/skills/
 #
-# Examples:
-#   "owner/repo" = true                                        # all skills from repo
-#   "owner/repo" = {skill-a = true, skill-b = false}           # selective per skill
-#   "owner/repo" = {path = "subdir"}                           # skills from subdirectory
-#   "owner/repo" = {path = "sub", editable = true, source = "~/local/checkout"}
+# Each entry is a sub-table keyed by "owner/repo":
+#
+#   [skills."owner/repo"]
+#   enabled = ["*"]                         # link every skill in the repo
+#
+#   [skills."owner/repo"]
+#   enabled = ["skill-a", "skill-b"]        # link only these
+#   disabled = ["skill-c"]                  # explicitly skip (sync won't re-prompt)
+#
+#   [skills."owner/repo"]
+#   path = "subdir"                         # skills live in a subdirectory
+#   editable = true                         # source is a local checkout
+#   source = "~/code/my-skills"
+#   enabled = ["*"]
 #
 # Run 'skillset sync' to install/update skills.
 
@@ -19,15 +28,19 @@ LOCAL_SKILLSET_TEMPLATE = """\
 # Project skillset configuration (skillset.toml)
 # Skills are installed to .claude/skills/
 #
-# Examples:
-#   "owner/repo" = true                                        # all skills from repo
-#   "owner/repo" = {skill-a = true, skill-b = false}           # selective per skill
-#   "owner/repo" = {path = "subdir"}                           # skills from subdirectory
-#   "owner/repo" = {local = true}                              # install to project scope
+# Each entry is a sub-table keyed by "owner/repo":
 #
-# Run 'skillset apply' to install skills.
+#   [skills."owner/repo"]
+#   enabled = ["*"]                         # link every skill in the repo
+#
+#   [skills."owner/repo"]
+#   enabled = ["skill-a", "skill-b"]        # link only these
+#   disabled = ["skill-c"]                  # explicitly skip (sync won't re-prompt)
+#
+#   [skills."owner/repo"]
+#   path = "subdir"                         # skills live in a subdirectory
+#
+# Run 'skillset sync' to install skills.
 
 [skills]
 """
-
-SYNC_META_KEYS = {"editable", "path", "source", "copy"}

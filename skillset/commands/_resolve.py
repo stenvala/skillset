@@ -43,9 +43,7 @@ def _resolve_source(repo, interactive, skills, subpath, no_cache):
     elif "/" in repo:
         repo_dir, toml_key, temp_dir, source_label = _resolve_spec(repo, no_cache)
     else:
-        is_editable, repo_dir, toml_key, toml_source, skills = _resolve_skill_name(
-            repo, skills
-        )
+        is_editable, repo_dir, toml_key, toml_source, skills = _resolve_skill_name(repo, skills)
 
     return (
         repo,

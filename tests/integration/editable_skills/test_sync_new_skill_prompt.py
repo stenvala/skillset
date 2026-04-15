@@ -10,20 +10,19 @@ from .conftest import FIXTURES, remove_skill_from_toml
 
 class TestSyncEditableNewSkillPrompt:
     def _setup(self, local_env):
-        """Add all editable skills, then remove gamma from toml."""
+        """Add two editable skills (gamma marked disabled), then drop gamma from toml."""
         cmd_add(repo=str(FIXTURES), skills=["alpha", "beta"])
 
         content = local_env.toml_path.read_text()
-        assert "alpha = true" in content
-        assert "beta = true" in content
-        assert "gamma = false" in content
+        assert '"alpha"' in content and '"beta"' in content
+        assert 'disabled = ["gamma"]' in content
 
         remove_skill_from_toml(local_env.toml_path, "gamma")
         content = local_env.toml_path.read_text()
-        assert "gamma" not in content
+        assert '"gamma"' not in content
 
     def test_accept_new_skill(self, local_env, capsys):
-        """User says 'y' -- gamma gets linked and toml updated with true."""
+        """User says 'y' -- gamma gets linked and appended to enabled."""
         self._setup(local_env)
 
         with patch("builtins.input", return_value="y"):
@@ -31,21 +30,23 @@ class TestSyncEditableNewSkillPrompt:
 
         assert (local_env.skills_dir / "gamma").exists()
         content = local_env.toml_path.read_text()
-        assert "gamma = true" in content
+        assert '"gamma"' in content
 
         output = capsys.readouterr().out
         assert "New skills detected" in output
 
     def test_reject_new_skill(self, local_env, capsys):
-        """User says 'n' -- gamma stays unlinked and toml updated with false."""
+        """User says 'n' -- gamma stays unlinked and appended to disabled."""
         self._setup(local_env)
 
         with patch("builtins.input", return_value="n"):
             cmd_sync(file=str(local_env.toml_path))
 
         assert not (local_env.skills_dir / "gamma" / "SKILL.md").exists()
-        content = local_env.toml_path.read_text()
-        assert "gamma = false" in content
+        with open(local_env.toml_path, "rb") as f:
+            config = tomllib.load(f)
+        entry = config["skills"]["fixtures"]
+        assert "gamma" in entry.get("disabled", [])
 
         output = capsys.readouterr().out
         assert "skipped" in output
@@ -59,10 +60,10 @@ class TestSyncEditableNewSkillPrompt:
 
         with open(local_env.toml_path, "rb") as f:
             config = tomllib.load(f)
-        skills_config = config["skills"]["fixtures"]
-        assert skills_config["editable"] is True
-        assert skills_config["alpha"] is True
-        assert skills_config["gamma"] is True
+        entry = config["skills"]["fixtures"]
+        assert entry["editable"] is True
+        assert "alpha" in entry["enabled"]
+        assert "gamma" in entry["enabled"]
 
     def test_existing_skills_preserved(self, local_env):
         """Alpha and beta remain linked regardless of gamma decision."""

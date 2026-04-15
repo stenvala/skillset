@@ -14,10 +14,10 @@ class TestAddEditableAllSkills:
 
         assert ALL_SKILLS.issubset(installed_skills(local_env.skills_dir))
 
-    def test_toml_lists_all_as_true(self, local_env):
+    def test_toml_lists_all_as_wildcard(self, local_env):
         with patch("builtins.input", return_value="y"):
             cmd_add(repo=str(FIXTURES))
 
         content = local_env.toml_path.read_text()
-        for skill in ALL_SKILLS:
-            assert f"{skill} = true" in content
+        assert 'enabled = ["*"]' in content
+        assert "disabled" not in content

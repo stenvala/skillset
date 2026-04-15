@@ -80,14 +80,11 @@ def installed_skills(skills_dir: Path) -> set[str]:
 
 
 def remove_skill_from_toml(toml_path: Path, skill_name: str) -> None:
-    """Remove a single skill entry from skillset.toml (multi-line or inline)."""
+    """Remove a skill name from enabled/disabled lists in skillset.toml."""
     content = toml_path.read_text()
-    content = re.sub(
-        rf"^{re.escape(skill_name)}\s*=\s*(true|false)\n",
-        "",
-        content,
-        flags=re.MULTILINE,
-    )
-    content = re.sub(rf",\s*{re.escape(skill_name)}\s*=\s*(true|false)", "", content)
-    content = re.sub(rf"{re.escape(skill_name)}\s*=\s*(true|false),\s*", "", content)
+    quoted = f'"{re.escape(skill_name)}"'
+    # Drop from the middle or either end of a list.
+    content = re.sub(rf",\s*{quoted}", "", content)
+    content = re.sub(rf"{quoted}\s*,\s*", "", content)
+    content = re.sub(rf"{quoted}", "", content)
     toml_path.write_text(content)

@@ -26,13 +26,10 @@ class TestSyncNewSkillAddedToEditableDir:
     def _setup(self, local_env, editable_dir):
         """Install all three original skills, then add two new ones to the dir."""
         local_env.toml_path.write_text(
-            f"[skills]\n"
             f'[skills."editable-skills"]\n'
             f"editable = true\n"
             f'source = "{editable_dir}"\n'
-            f"alpha = true\n"
-            f"beta = true\n"
-            f"gamma = true\n"
+            f'enabled = ["alpha", "beta", "gamma"]\n'
         )
 
         cmd_sync(file=str(local_env.toml_path))
@@ -44,7 +41,7 @@ class TestSyncNewSkillAddedToEditableDir:
             (skill_dir / "SKILL.md").write_text(f"# {name}\n")
 
     def test_add_all(self, local_env, editable_dir, capsys):
-        """User chooses 'a' -- both new skills linked and toml updated as true."""
+        """User chooses 'a' -- both new skills linked and appended to enabled."""
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="a"):
@@ -55,15 +52,15 @@ class TestSyncNewSkillAddedToEditableDir:
         assert "epsilon" in installed
 
         content = local_env.toml_path.read_text()
-        assert "delta = true" in content
-        assert "epsilon = true" in content
+        assert '"delta"' in content
+        assert '"epsilon"' in content
 
         output = capsys.readouterr().out
         assert "New skills detected" in output
         assert "2 new skill(s)" in output
 
     def test_ignore_all(self, local_env, editable_dir, capsys):
-        """User chooses 'i' -- neither new skill linked, toml updated as false."""
+        """User chooses 'i' -- neither new skill linked, appended to disabled."""
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="i"):
@@ -74,8 +71,9 @@ class TestSyncNewSkillAddedToEditableDir:
         assert "epsilon" not in installed
 
         content = local_env.toml_path.read_text()
-        assert "delta = false" in content
-        assert "epsilon = false" in content
+        assert "disabled" in content
+        assert '"delta"' in content
+        assert '"epsilon"' in content
 
         output = capsys.readouterr().out
         assert "skipped" in output
@@ -92,9 +90,11 @@ class TestSyncNewSkillAddedToEditableDir:
         assert "delta" in installed
         assert "epsilon" not in installed
 
-        content = local_env.toml_path.read_text()
-        assert "delta = true" in content
-        assert "epsilon = false" in content
+        with open(local_env.toml_path, "rb") as f:
+            config = tomllib.load(f)
+        entry = config["skills"]["editable-skills"]
+        assert "delta" in entry["enabled"]
+        assert "epsilon" in entry.get("disabled", [])
 
     def test_original_skills_preserved(self, local_env, editable_dir):
         """Original skills remain linked regardless of new skill decisions."""
@@ -116,9 +116,9 @@ class TestSyncNewSkillAddedToEditableDir:
         with open(local_env.toml_path, "rb") as f:
             config = tomllib.load(f)
         entry = config["skills"]["editable-skills"]
-        assert entry["delta"] is True
-        assert entry["epsilon"] is True
-        assert entry["alpha"] is True
+        assert "delta" in entry["enabled"]
+        assert "epsilon" in entry["enabled"]
+        assert "alpha" in entry["enabled"]
 
     def test_toml_remains_valid_after_ignore_all(self, local_env, editable_dir):
         """Toml is valid after ignoring all new skills."""
@@ -130,5 +130,5 @@ class TestSyncNewSkillAddedToEditableDir:
         with open(local_env.toml_path, "rb") as f:
             config = tomllib.load(f)
         entry = config["skills"]["editable-skills"]
-        assert entry["delta"] is False
-        assert entry["epsilon"] is False
+        assert "delta" in entry["disabled"]
+        assert "epsilon" in entry["disabled"]
