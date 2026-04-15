@@ -71,10 +71,6 @@ def add(
         bool,
         typer.Option("--no-cache", help="Clone to a temp dir, copy skills, then clean up"),
     ] = False,
-    editable: Annotated[
-        bool,
-        typer.Option("-e", "--editable", help="Add from a local editable path"),
-    ] = False,
     trial: Annotated[
         bool,
         typer.Option("--try", help="Install on trial basis (remove with 'clean')"),
@@ -92,7 +88,6 @@ def add(
         subpath=subpath,
         copy=copy,
         no_cache=no_cache,
-        editable=editable,
         trial=trial,
         interactive=interactive,
     )

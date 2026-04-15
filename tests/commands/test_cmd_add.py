@@ -64,7 +64,7 @@ def test_add_global_flag_skips_local_detection(env, source_repo, capsys):
 
 def test_add_local_path_not_found_exits(env):
     with pytest.raises(SystemExit):
-        cmd_add(repo="/nonexistent/path", editable=True)
+        cmd_add(repo="/nonexistent/path")
 
 
 def test_add_invalid_github_url_exits(env):
@@ -127,23 +127,23 @@ def test_add_trial(env, source_repo, capsys):
         assert opts.get("trial") is True
 
 
-def test_add_editable_skill_name(env, source_repo, capsys):
+def test_add_skill_by_name(env, source_repo, capsys):
     # Set up skillset.toml with editable entry
     toml_path = env.home / ".claude" / "skillset.toml"
     toml_path.write_text(f'[skills]\n"my-lib" = {{editable = true, source = "{source_repo}"}}\n')
 
-    cmd_add(repo="skill-a", editable=True)
+    cmd_add(repo="skill-a")
 
     skills_dir = env.home / ".claude" / "skills"
     assert (skills_dir / "skill-a").is_symlink()
 
 
-def test_add_editable_not_found_exits(env):
+def test_add_skill_name_not_found_exits(env):
     toml_path = env.home / ".claude" / "skillset.toml"
     toml_path.write_text("[skills]\n")
 
     with pytest.raises(SystemExit):
-        cmd_add(repo="nonexistent", editable=True)
+        cmd_add(repo="nonexistent")
 
 
 def test_add_registers_in_skillset_toml(env, source_repo, capsys):
@@ -208,15 +208,6 @@ def test_add_linked_repo_dir(env, source_repo, capsys):
     assert "Linked" in output
 
 
-def test_add_editable_local_path(env, source_repo, capsys):
-    """Editable flag with a local directory path."""
-    with patch("builtins.input", return_value="y"):
-        cmd_add(repo=str(source_repo), editable=True)
-
-    skills_dir = env.home / ".claude" / "skills"
-    assert (skills_dir / "skill-a").is_symlink()
-
-
 def test_add_github_url_linked_repo(env, source_repo, capsys):
     """GitHub URL when cached repo is a symlink."""
     cache_dir = env.home / ".cache" / "skillset" / "repos" / "owner"
@@ -229,12 +220,6 @@ def test_add_github_url_linked_repo(env, source_repo, capsys):
 
     output = capsys.readouterr().out
     assert "Linked" in output
-
-
-def test_add_local_path_not_found_no_editable(env):
-    """Local path that doesn't exist (without --editable)."""
-    with pytest.raises(SystemExit):
-        cmd_add(repo="/nonexistent/local/path")
 
 
 def test_add_from_cached_repo(env, source_repo, capsys):

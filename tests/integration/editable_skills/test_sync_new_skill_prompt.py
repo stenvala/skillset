@@ -11,7 +11,7 @@ from .conftest import FIXTURES, remove_skill_from_toml
 class TestSyncEditableNewSkillPrompt:
     def _setup(self, local_env):
         """Add all editable skills, then remove gamma from toml."""
-        cmd_add(repo=str(FIXTURES), editable=True, skills=["alpha", "beta"])
+        cmd_add(repo=str(FIXTURES), skills=["alpha", "beta"])
 
         content = local_env.toml_path.read_text()
         assert "alpha = true" in content

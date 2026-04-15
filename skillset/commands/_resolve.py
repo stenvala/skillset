@@ -13,19 +13,18 @@ from skillset.repo import (
     parse_repo_spec,
 )
 from skillset.ui import (
-    find_editable_skill,
+    find_skill,
     fzf_select,
     is_local_path,
-    register_local_lib,
 )
 
 
-def _resolve_source(repo, interactive, editable, skills, subpath, no_cache):
+def _resolve_source(repo, interactive, skills, subpath, no_cache):
     """Resolve the source repo/dir and metadata. Returns a 9-tuple."""
     temp_dir = None
     source_label = None
     toml_key = None
-    is_editable = editable
+    is_editable = False
     toml_source = None
 
     if not repo:
@@ -36,19 +35,17 @@ def _resolve_source(repo, interactive, editable, skills, subpath, no_cache):
         if not repo:
             return None, None, None, False, None, None, None, None, None
 
-    if is_editable:
-        repo_dir, toml_key, toml_source, skills = _resolve_editable(repo, skills)
-    elif repo and "://" in repo:
+    if "://" in repo:
         repo_dir, toml_key, subpath, temp_dir, source_label = _resolve_url(repo, subpath, no_cache)
     elif is_local_path(repo):
-        repo_dir = Path(repo).expanduser().resolve()
-        if not repo_dir.is_dir():
-            print(f"Directory not found: {repo_dir}")
-            sys.exit(1)
-        if not no_cache:
-            register_local_lib(repo_dir)
-    else:
+        is_editable = True
+        repo_dir, toml_key, toml_source = _resolve_local(repo)
+    elif "/" in repo:
         repo_dir, toml_key, temp_dir, source_label = _resolve_spec(repo, no_cache)
+    else:
+        is_editable, repo_dir, toml_key, toml_source, skills = _resolve_skill_name(
+            repo, skills
+        )
 
     return (
         repo,
@@ -80,26 +77,48 @@ def _pick_repo_interactively() -> str | None:
     return selected[0] if selected else None
 
 
-def _resolve_editable(repo, skills):
-    """Resolve an editable source. Returns (repo_dir, toml_key, toml_source, skills)."""
-    if is_local_path(repo):
-        repo_dir = Path(repo).expanduser().resolve()
-        if not repo_dir.is_dir():
-            print(f"Directory not found: {repo_dir}")
-            sys.exit(1)
-        toml_key = repo_dir.name
-        toml_source = str(repo_dir).replace("\\", "/")
+def _resolve_local(repo):
+    """Resolve a local directory path. Returns (repo_dir, toml_key, toml_source)."""
+    repo_dir = Path(repo).expanduser().resolve()
+    if not repo_dir.is_dir():
+        print(f"Directory not found: {repo_dir}")
+        sys.exit(1)
+    toml_key = repo_dir.name
+    toml_source = str(repo_dir).replace("\\", "/")
+    return repo_dir, toml_key, toml_source
+
+
+def _resolve_skill_name(repo, skills):
+    """Resolve a bare skill name by searching all sources.
+
+    Returns (is_editable, repo_dir, toml_key, toml_source, skills).
+    """
+    matches = find_skill(repo)
+    if not matches:
+        print(f"Skill '{repo}' not found in any source")
+        print("Add a source first: skillset add owner/repo or skillset add /path/to/skills")
+        sys.exit(1)
+
+    if len(matches) == 1:
+        source_dir, toml_key, toml_source, is_editable = matches[0]
     else:
-        result = find_editable_skill(repo)
-        if not result:
-            print(f"Skill '{repo}' not found in registered editable sources")
-            print("Register a source first: skillset add /path/to/skills -e")
+        print(f"\nSkill '{repo}' found in multiple sources:")
+        for i, (_dir, _key, _source, _edit) in enumerate(matches, 1):
+            label = _source or _key
+            print(f"  {i}. {label}")
+        choice = input(f"Choose source [1-{len(matches)}]: ").strip()
+        try:
+            idx = int(choice) - 1
+            if not (0 <= idx < len(matches)):
+                raise ValueError
+        except ValueError:
+            print("Invalid choice")
             sys.exit(1)
-        repo_dir, toml_key = result
-        toml_source = str(repo_dir).replace("\\", "/")
-        if not skills:
-            skills = [repo]
-    return repo_dir, toml_key, toml_source, skills
+        source_dir, toml_key, toml_source, is_editable = matches[idx]
+
+    if not skills:
+        skills = [repo]
+    return is_editable, source_dir, toml_key, toml_source, skills
 
 
 def _resolve_url(repo, subpath, no_cache):

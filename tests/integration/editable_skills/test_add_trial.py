@@ -10,20 +10,20 @@ from .conftest import ALL_SKILLS, FIXTURES, installed_skills
 class TestAddTrial:
     def test_trial_does_not_write_to_toml(self, local_env):
         with patch("builtins.input", return_value="y"):
-            cmd_add(repo=str(FIXTURES), editable=True, trial=True)
+            cmd_add(repo=str(FIXTURES), trial=True)
 
         content = local_env.toml_path.read_text()
         assert "fixtures" not in content
 
     def test_trial_still_links_skills(self, local_env):
         with patch("builtins.input", return_value="y"):
-            cmd_add(repo=str(FIXTURES), editable=True, trial=True)
+            cmd_add(repo=str(FIXTURES), trial=True)
 
         assert ALL_SKILLS.issubset(installed_skills(local_env.skills_dir))
 
     def test_clean_removes_trial_skills(self, local_env):
         with patch("builtins.input", return_value="y"):
-            cmd_add(repo=str(FIXTURES), editable=True, trial=True)
+            cmd_add(repo=str(FIXTURES), trial=True)
 
         assert ALL_SKILLS.issubset(installed_skills(local_env.skills_dir))
 
@@ -35,7 +35,7 @@ class TestAddTrial:
     def test_clean_does_not_delete_source_dir(self, local_env):
         """Clean must not delete the editable source directory itself."""
         with patch("builtins.input", return_value="y"):
-            cmd_add(repo=str(FIXTURES), editable=True, trial=True)
+            cmd_add(repo=str(FIXTURES), trial=True)
 
         cmd_clean()
 
