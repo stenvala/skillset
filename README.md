@@ -106,6 +106,11 @@ enabled = ["*"]
 enabled = ["zaira"]
 disabled = ["some-other"]
 
+# glob patterns: link everything matching a prefix, minus one
+[skills."vivainio/agent-skills"]
+enabled = ["doc-*"]
+disabled = ["doc-draft"]
+
 # skills from a subdirectory
 [skills."vivainio/agent-skills"]
 path = "extra-skills"
@@ -130,7 +135,7 @@ skillset sync -g                       # force sync global ~/.claude/skillset.to
 skillset sync --file path/to/skillset.toml  # sync a specific file
 ```
 
-`sync` pulls each repo, links skills in `enabled`, removes those in `disabled`, and prompts for any new skills in the repo that aren't yet listed in either list. `enabled = ["*"]` links every skill (minus anything in `disabled`).
+`sync` pulls each repo, links skills in `enabled`, removes those in `disabled`, and prompts for any new skills in the repo that aren't yet listed in either list. `enabled = ["*"]` links every skill (minus anything in `disabled`). Any entry containing `*`, `?`, or `[` is treated as an fnmatch glob against available skill names.
 
 **Editable skills** point to a local checkout instead of the cache. Set `editable = true` with `source` pointing to the local path. Use `path` to select a subdirectory within it.
 

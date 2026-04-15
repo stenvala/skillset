@@ -33,6 +33,49 @@ def test_sync_wildcard_entry(env, source_repo, capsys):
     assert "skill-a" in output
 
 
+def test_sync_glob_pattern_matches(env, source_repo, capsys):
+    """enabled = ["skill-*"] expands to every skill in source (both skill-a and skill-b)."""
+    toml = env.home / ".claude" / "skillset.toml"
+    toml.write_text('[skills."owner/repo"]\nenabled = ["skill-*"]\n')
+
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
+        cmd_sync()
+
+    output = capsys.readouterr().out
+    assert "+ skill-a" in output
+    assert "+ skill-b" in output
+
+
+def test_sync_glob_with_disabled_subtraction(env, source_repo, capsys):
+    """Pattern on enabled minus an explicit disabled entry."""
+    toml = env.home / ".claude" / "skillset.toml"
+    toml.write_text(
+        '[skills."owner/repo"]\nenabled = ["skill-*"]\ndisabled = ["skill-b"]\n'
+    )
+
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
+        cmd_sync()
+
+    output = capsys.readouterr().out
+    assert "+ skill-a" in output
+    assert "+ skill-b" not in output
+
+
+def test_sync_glob_does_not_cover_unrelated_new_skills(env, source_repo, capsys):
+    """enabled=['skill-a*'] only covers skill-a; skill-b is still new and prompts."""
+    toml = env.home / ".claude" / "skillset.toml"
+    toml.write_text('[skills."owner/repo"]\nenabled = ["skill-a*"]\n')
+
+    with patch("skillset.commands.sync.clone_or_pull", return_value=source_repo):
+        with patch("builtins.input", return_value="n"):
+            cmd_sync()
+
+    output = capsys.readouterr().out
+    assert "+ skill-a" in output
+    assert "New skills detected" in output
+    assert "skill-b" in output
+
+
 def test_sync_all_disabled_links_nothing(env, source_repo, capsys):
     """enabled=[] with every source skill in disabled links nothing and does not prompt."""
     toml = env.home / ".claude" / "skillset.toml"

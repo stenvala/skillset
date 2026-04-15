@@ -1,6 +1,7 @@
 """Command handler for sync."""
 
 import sys
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from skillset.commands.update import _resolve_toml_path
@@ -16,7 +17,21 @@ from skillset.paths import (
 )
 from skillset.repo import clone_or_pull, parse_repo_spec
 
-WILDCARD = "*"
+
+def _is_glob(pattern: str) -> bool:
+    """Check if a list entry is a glob pattern."""
+    return any(c in pattern for c in "*?[")
+
+
+def _expand_patterns(patterns: list[str], names: set[str]) -> set[str]:
+    """Expand glob entries against available names. Literal entries pass through."""
+    result: set[str] = set()
+    for p in patterns:
+        if _is_glob(p):
+            result |= {n for n in names if fnmatchcase(n, p)}
+        else:
+            result.add(p)
+    return result
 
 
 def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
@@ -122,18 +137,19 @@ def _sync_dict_entry(
 
     available = find_skills(source_dir)
     available_names = {s.name for s in available}
-    disabled_set = set(disabled_raw)
+    disabled_set = _expand_patterns(disabled_raw, available_names)
 
     if enabled_raw is None:
-        # No enabled key at all -- treat as wildcard for ergonomics
-        enabled_declared = available_names
-        tracked = available_names
-    elif WILDCARD in enabled_raw:
+        # No enabled key at all -- behave like ["*"] for ergonomics.
         enabled_declared = available_names - disabled_set
         tracked = available_names
     else:
-        enabled_declared = set(enabled_raw)
-        tracked = enabled_declared | disabled_set
+        enabled_expanded = _expand_patterns(enabled_raw, available_names)
+        enabled_declared = enabled_expanded - disabled_set
+        # "new" = anything in available not yet matched by a pattern and not
+        # listed literally. Patterns that hit a name suppress its prompt.
+        literals = {p for p in (enabled_raw + disabled_raw) if not _is_glob(p)}
+        tracked = enabled_expanded | disabled_set | literals
 
     total = _sync_lists(
         enabled_declared,
