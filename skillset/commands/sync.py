@@ -65,13 +65,10 @@ def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
 
 def _sync_dirs(is_local, file_path):
     """Return (skills_dir, commands_dir) for sync."""
-    if is_local:
-        local_root = file_path.parent
-        return (
-            local_root / ".claude" / "skills",
-            local_root / ".claude" / "commands",
-        )
-    return get_global_skills_dir(), get_global_commands_dir()
+    if not is_local:
+        return get_global_skills_dir(), get_global_commands_dir()
+    root = file_path.parent
+    return root / ".claude" / "skills", root / ".claude" / "commands"
 
 
 def _sync_entry(repo_key, value, skills_dir, commands_dir, scope, new_found, new_ctx):
@@ -196,12 +193,12 @@ def _resolve_editable_source(repo_key, source_str, path_str, owner, repo_name):
         return None, None, None, None
     print(f"\nSyncing {repo_key} (editable)...")
     base_dir = Path(source_str).expanduser().resolve()
-    if not base_dir.is_dir():
-        print(f"  Source not found: {source_str}")
-        return None, None, None, None
     source_dir = base_dir / path_str if path_str else base_dir
-    if path_str and not source_dir.is_dir():
-        print(f"  Path not found: {path_str} in {source_str}")
+    if not source_dir.is_dir():
+        if path_str:
+            print(f"  Path not found: {path_str} in {source_str}")
+        else:
+            print(f"  Source not found: {source_str}")
         return None, None, None, None
     register_local_lib(base_dir)
     return source_dir, base_dir, owner, repo_name
@@ -238,6 +235,13 @@ def _sync_selective(
             remove_managed(skill_path)
             print(f"  - {skill_name} (excluded)")
 
+    # Clean up stale links for enabled skills removed from source
+    for skill_name in sorted(enabled - available_names):
+        skill_path = skills_dir / skill_name
+        if is_managed(skill_path):
+            remove_managed(skill_path)
+            print(f"  - {skill_name} (removed from source)")
+
     return total
 
 
@@ -251,12 +255,10 @@ def _collect_new_skill_decisions(names, source_dir, skills_dir, use_copy):
         for name in names:
             print(f"  + {name}")
         return {name: True for name in names}, len(linked)
-
     if choice in ("i", "ignore"):
         for name in names:
             print(f"  - {name} (skipped)")
         return {name: False for name in names}, 0
-
     return _collect_individual_decisions(names, source_dir, skills_dir, use_copy)
 
 
