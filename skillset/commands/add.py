@@ -79,6 +79,7 @@ def cmd_add(
         _record_install(repo_dir, subpath, use_copy, is_local, trial, skills)
 
     if toml_key and (linked_skills or linked_commands) and not trial:
+        _ensure_toml_exists(is_editable, is_local, skillset_root)
         _register_in_toml(
             toml_key,
             subpath,
@@ -206,6 +207,19 @@ def _record_install(repo_dir, subpath, use_copy, is_local, trial, skills):
         scope="local" if is_local else "global",
         trial=trial_value,
     )
+
+
+def _ensure_toml_exists(is_editable, is_local, skillset_root):
+    """Create skillset.toml if it doesn't exist and we need to write to it."""
+    if not is_editable:
+        return
+    if is_local:
+        toml_path = skillset_root / "skillset.toml"
+    else:
+        toml_path = get_global_skillset_path()
+    if not toml_path.exists():
+        toml_path.parent.mkdir(parents=True, exist_ok=True)
+        toml_path.write_text("[skills]\n")
 
 
 def _register_in_toml(

@@ -83,7 +83,8 @@ def _resolve_local(repo):
     if not repo_dir.is_dir():
         print(f"Directory not found: {repo_dir}")
         sys.exit(1)
-    toml_key = repo_dir.name
+    parent = repo_dir.parent.name
+    toml_key = f"{parent}/{repo_dir.name}" if parent else repo_dir.name
     toml_source = str(repo_dir).replace("\\", "/")
     return repo_dir, toml_key, toml_source
 
