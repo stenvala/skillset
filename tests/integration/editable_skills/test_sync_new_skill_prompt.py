@@ -59,7 +59,7 @@ class TestSyncEditableNewSkillPrompt:
 
         with open(local_env.toml_path, "rb") as f:
             config = tomllib.load(f)
-        skills_config = config["skills"]["fixtures"]
+        skills_config = config["skills"]["editable_skills/fixtures"]
         assert skills_config["editable"] is True
         assert skills_config["alpha"] is True
         assert skills_config["gamma"] is True
