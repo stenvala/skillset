@@ -80,7 +80,7 @@ def add(
         typer.Option("-i", "--interactive", help="Select skills interactively with fzf"),
     ] = False,
 ) -> None:
-    """Add skills from a GitHub repo. Installs locally if skillset.toml is found in path."""
+    """Add skills from a GitHub repo. Installs locally if skillset.yaml is found in path."""
     cmd_add(
         repo=repo,
         g=global_,
@@ -97,13 +97,13 @@ def add(
 def apply(
     file: Annotated[
         str | None,
-        typer.Option(help="Path to skillset.toml"),
+        typer.Option(help="Path to skillset.yaml"),
     ] = None,
     global_: Annotated[
-        bool, typer.Option("-g", "--global", help="Apply global ~/.claude/skillset.toml")
+        bool, typer.Option("-g", "--global", help="Apply global ~/.claude/skillset.yaml")
     ] = False,
 ) -> None:
-    """Install skills declared in skillset.toml. Uses local if found, otherwise global."""
+    """Install skills declared in skillset.yaml. Uses local if found, otherwise global."""
     cmd_apply(file=file, g=global_)
 
 
@@ -123,10 +123,10 @@ def update(
 @app.command()
 def init(
     global_: Annotated[
-        bool, typer.Option("-g", "--global", help="Create global ~/.claude/skillset.toml")
+        bool, typer.Option("-g", "--global", help="Create global ~/.claude/skillset.yaml")
     ] = False,
 ) -> None:
-    """Create a skillset.toml file. Default: local at git root. --global for ~/.claude/."""
+    """Create a skillset.yaml file. Default: local at git root. --global for ~/.claude/."""
     cmd_init(g=global_)
 
 
@@ -134,13 +134,13 @@ def init(
 def sync(
     file: Annotated[
         str | None,
-        typer.Option(help="Path to skillset.toml"),
+        typer.Option(help="Path to skillset.yaml"),
     ] = None,
     global_: Annotated[
-        bool, typer.Option("-g", "--global", help="Sync global ~/.claude/skillset.toml")
+        bool, typer.Option("-g", "--global", help="Sync global ~/.claude/skillset.yaml")
     ] = False,
 ) -> None:
-    """Sync skills from skillset.toml. Uses local if found, otherwise global."""
+    """Sync skills from skillset.yaml. Uses local if found, otherwise global."""
     cmd_sync(file=file, g=global_)
 
 
@@ -168,7 +168,7 @@ def remove(
         typer.Option("-i", "--interactive", help="Select skills to remove with fzf"),
     ] = False,
 ) -> None:
-    """Remove a skill by name. Removes from local scope if skillset.toml is found in path."""
+    """Remove a skill by name. Removes from local scope if skillset.yaml is found in path."""
     cmd_remove(name=name, g=global_, interactive=interactive)
 
 

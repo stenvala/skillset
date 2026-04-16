@@ -1,12 +1,24 @@
-"""Path helpers and constants for skillset."""
+"""Path helpers and config-file I/O for skillset.
 
-import re
+The on-disk config is YAML, loaded with ruamel.yaml in round-trip mode so
+hand-written comments and structure survive tool edits.
+"""
+
 import subprocess
 import sys
 from pathlib import Path
 
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedSeq
+
 IS_WINDOWS = sys.platform == "win32"
 CLAUDE_SETTINGS_FILE = ".claude/settings.json"
+SKILLSET_CONFIG_FILE = "skillset.yaml"
+
+_yaml = YAML(typ="rt")
+_yaml.preserve_quotes = True
+_yaml.default_flow_style = False
+_yaml.indent(mapping=2, sequence=4, offset=2)
 
 
 def get_cache_dir() -> Path:
@@ -51,21 +63,21 @@ def get_project_commands_dir() -> Path | None:
 
 
 def get_global_skillset_path() -> Path:
-    """Get the path to the global skillset.toml."""
-    return Path.home() / ".claude" / "skillset.toml"
+    """Get the path to the global skillset.yaml."""
+    return Path.home() / ".claude" / SKILLSET_CONFIG_FILE
 
 
 def get_local_skillset_path() -> Path | None:
-    """Get the path to the local skillset.toml at the repo root, or None if not in a git repo."""
+    """Get the path to the local skillset.yaml at the repo root, or None if not in a git repo."""
     root = get_git_root()
-    return root / "skillset.toml" if root else None
+    return root / SKILLSET_CONFIG_FILE if root else None
 
 
 def find_skillset_root() -> Path | None:
-    """Walk up from CWD looking for skillset.toml. Return its parent dir, or None."""
+    """Walk up from CWD looking for skillset.yaml. Return its parent dir, or None."""
     current = Path.cwd()
     while True:
-        if (current / "skillset.toml").exists():
+        if (current / SKILLSET_CONFIG_FILE).exists():
             return current
         parent = current.parent
         if parent == current:
@@ -73,8 +85,30 @@ def find_skillset_root() -> Path | None:
         current = parent
 
 
+def load_skillset(config_path: Path) -> dict:
+    """Load a skillset.yaml file. Returns {} if missing or empty."""
+    if not config_path.exists():
+        return {}
+    with config_path.open("r") as f:
+        data = _yaml.load(f)
+    return data or {}
+
+
+def save_skillset(config_path: Path, data) -> None:
+    """Write data back to a skillset.yaml file."""
+    with config_path.open("w") as f:
+        _yaml.dump(data, f)
+
+
+def _flow_list(items: list[str]) -> CommentedSeq:
+    """Build an inline (flow-style) YAML sequence for compact writes."""
+    seq = CommentedSeq(items)
+    seq.fa.set_flow_style()
+    return seq
+
+
 def add_to_skillset(
-    toml_path: Path,
+    config_path: Path,
     repo_key: str,
     *,
     path: str | None = None,
@@ -83,33 +117,38 @@ def add_to_skillset(
     editable: bool = False,
     source: str | None = None,
 ) -> bool:
-    """Append a [skills."repo"] sub-table to a skillset.toml file. Returns True if written.
+    """Add a new entry to a skillset.yaml file. Returns True if written.
 
+    Skips silently if the file doesn't exist or the key is already registered.
     Skill selection is expressed as two lists:
-      enabled = ["skill-a", "skill-b"]   # or ["*"] for all
-      disabled = ["skill-c"]              # explicit opt-outs (skipped by sync)
+      enabled: ["skill-a", "skill-b"]   # or ["*"] for all (supports globs)
+      disabled: ["skill-c"]              # explicit opt-outs (skipped by sync)
     """
-    if not toml_path.exists():
+    if not config_path.exists():
         return False
 
-    content = toml_path.read_text()
-    if f'"{repo_key}"' in content or f"'{repo_key}'" in content:
+    data = load_skillset(config_path)
+    skills = data.get("skills")
+    if skills is None:
+        skills = {}
+        data["skills"] = skills
+    if repo_key in skills:
         return False
 
-    lines = [f'[skills."{repo_key}"]']
+    entry: dict = {}
     if editable:
-        lines.append("editable = true")
+        entry["editable"] = True
     if source:
-        lines.append(f'source = "{source}"')
+        entry["source"] = source
     if path:
-        lines.append(f'path = "{path}"')
+        entry["path"] = path
     if enabled is not None:
-        lines.append(_format_str_list("enabled", enabled))
+        entry["enabled"] = _flow_list(enabled)
     if disabled:
-        lines.append(_format_str_list("disabled", disabled))
-    entry = "\n".join(lines) + "\n"
+        entry["disabled"] = _flow_list(disabled)
 
-    toml_path.write_text(content.rstrip() + "\n" + entry)
+    skills[repo_key] = entry
+    save_skillset(config_path, data)
     return True
 
 
@@ -122,7 +161,7 @@ def add_to_global_skillset(
     editable: bool = False,
     source: str | None = None,
 ) -> bool:
-    """Append a repo entry to ~/.claude/skillset.toml if it exists. Returns True if written."""
+    """Append a repo entry to ~/.claude/skillset.yaml if it exists. Returns True if written."""
     return add_to_skillset(
         get_global_skillset_path(),
         repo_key,
@@ -134,22 +173,14 @@ def add_to_global_skillset(
     )
 
 
-def _format_str_list(key: str, items: list[str]) -> str:
-    """Format a string list as a TOML array assignment."""
-    if not items:
-        return f"{key} = []"
-    body = ", ".join(f'"{s}"' for s in items)
-    return f"{key} = [{body}]"
-
-
 def update_skillset_skills(
-    toml_path: Path,
+    config_path: Path,
     repo_key: str,
     *,
     add_enabled: list[str] | None = None,
     add_disabled: list[str] | None = None,
 ) -> bool:
-    """Fold skill names into the enabled/disabled arrays of an existing sub-table.
+    """Fold skill names into the enabled/disabled lists of an existing entry.
 
     Move semantics: names added to `enabled` are removed from `disabled` and
     vice versa, so a skill is never listed in both. Dedupes within a list.
@@ -157,81 +188,47 @@ def update_skillset_skills(
     """
     add_enabled = add_enabled or []
     add_disabled = add_disabled or []
-    if not toml_path.exists() or not (add_enabled or add_disabled):
+    if not config_path.exists() or not (add_enabled or add_disabled):
         return False
 
-    content = toml_path.read_text()
-    header_pattern = re.compile(
-        r'^\[skills\."' + re.escape(repo_key) + r'"\]\s*$',
-        re.MULTILINE,
-    )
-    header_match = header_pattern.search(content)
-    if not header_match:
+    data = load_skillset(config_path)
+    skills = data.get("skills") or {}
+    entry = skills.get(repo_key)
+    if not isinstance(entry, dict):
         return False
 
-    section_start = header_match.end()
-    next_header = re.search(r"^\[", content[section_start:], re.MULTILINE)
-    section_end = section_start + next_header.start() if next_header else len(content)
-    section = content[section_start:section_end]
+    modified = False
+    for name in add_enabled:
+        modified |= _list_add(entry, "enabled", name)
+        modified |= _list_remove(entry, "disabled", name)
+    for name in add_disabled:
+        modified |= _list_add(entry, "disabled", name)
+        modified |= _list_remove(entry, "enabled", name)
 
-    new_section = section
-    new_section, a = _rewrite_list(new_section, "enabled", lambda xs: _add_unique(xs, add_enabled))
-    new_section, b = _rewrite_list(new_section, "disabled", lambda xs: _remove(xs, add_enabled))
-    new_section, c = _rewrite_list(
-        new_section, "disabled", lambda xs: _add_unique(xs, add_disabled)
-    )
-    new_section, d = _rewrite_list(new_section, "enabled", lambda xs: _remove(xs, add_disabled))
-    if not (a or b or c or d):
+    if modified:
+        save_skillset(config_path, data)
+    return modified
+
+
+def _list_add(entry: dict, key: str, name: str) -> bool:
+    """Append name to entry[key]. Creates the list if missing. Dedupes."""
+    items = entry.get(key)
+    if items is None:
+        entry[key] = _flow_list([name])
+        return True
+    if name in items:
         return False
-
-    toml_path.write_text(content[:section_start] + new_section + content[section_end:])
+    items.append(name)
     return True
 
 
-def _parse_list_body(body: str) -> list[str]:
-    """Extract double-quoted names from a TOML array body."""
-    return re.findall(r'"([^"]*)"', body)
-
-
-def _add_unique(existing: list[str], additions: list[str]) -> list[str]:
-    """Append items not already in existing. Preserves order."""
-    out = list(existing)
-    for name in additions:
-        if name not in out:
-            out.append(name)
-    return out
-
-
-def _remove(existing: list[str], removals: list[str]) -> list[str]:
-    """Remove items from existing."""
-    if not removals:
-        return existing
-    drop = set(removals)
-    return [n for n in existing if n not in drop]
-
-
-def _rewrite_list(section: str, key: str, mutate) -> tuple[str, bool]:
-    """Find `key = [...]` in section and apply `mutate(names) -> names`.
-
-    Returns (section, changed). If the key is missing and mutate returns a
-    non-empty list, the assignment is appended to the section.
-    """
-    pattern = re.compile(rf"^{key}\s*=\s*\[([^\]]*)\]\s*$", re.MULTILINE)
-    match = pattern.search(section)
-    if match:
-        current = _parse_list_body(match.group(1))
-        updated = mutate(current)
-        if updated == current:
-            return section, False
-        replacement = _format_str_list(key, updated)
-        return section[: match.start()] + replacement + section[match.end() :], True
-    updated = mutate([])
-    if not updated:
-        return section, False
-    trailing_ws = len(section) - len(section.rstrip("\n"))
-    body = section.rstrip("\n")
-    suffix = "\n" * max(trailing_ws, 1)
-    return f"{body}\n{_format_str_list(key, updated)}{suffix}", True
+def _list_remove(entry: dict, key: str, name: str) -> bool:
+    """Remove name from entry[key] if present."""
+    items = entry.get(key)
+    if not items or name not in items:
+        return False
+    items.remove(name)
+    return True
 
 
 def require_project_dir(path: Path | None, kind: str = "project") -> Path:

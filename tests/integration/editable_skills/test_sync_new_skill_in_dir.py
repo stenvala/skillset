@@ -5,12 +5,12 @@ editable skills repo and the user runs `skillset sync`.
 """
 
 import shutil
-import tomllib
 from unittest.mock import patch
 
 import pytest
 
 from skillset.commands import cmd_sync
+from skillset.paths import load_skillset
 
 from .conftest import FIXTURES, installed_skills
 
@@ -26,10 +26,11 @@ class TestSyncNewSkillAddedToEditableDir:
     def _setup(self, local_env, editable_dir):
         """Install all three original skills, then add two new ones to the dir."""
         local_env.toml_path.write_text(
-            f'[skills."editable-skills"]\n'
-            f"editable = true\n"
-            f'source = "{editable_dir}"\n'
-            f'enabled = ["alpha", "beta", "gamma"]\n'
+            "skills:\n"
+            "  editable-skills:\n"
+            "    editable: true\n"
+            f"    source: {editable_dir}\n"
+            "    enabled: [alpha, beta, gamma]\n"
         )
 
         cmd_sync(file=str(local_env.toml_path))
@@ -51,9 +52,10 @@ class TestSyncNewSkillAddedToEditableDir:
         assert "delta" in installed
         assert "epsilon" in installed
 
-        content = local_env.toml_path.read_text()
-        assert '"delta"' in content
-        assert '"epsilon"' in content
+        data = load_skillset(local_env.toml_path)
+        enabled = list(data["skills"]["editable-skills"]["enabled"])
+        assert "delta" in enabled
+        assert "epsilon" in enabled
 
         output = capsys.readouterr().out
         assert "New skills detected" in output
@@ -70,10 +72,10 @@ class TestSyncNewSkillAddedToEditableDir:
         assert "delta" not in installed
         assert "epsilon" not in installed
 
-        content = local_env.toml_path.read_text()
-        assert "disabled" in content
-        assert '"delta"' in content
-        assert '"epsilon"' in content
+        data = load_skillset(local_env.toml_path)
+        disabled = list(data["skills"]["editable-skills"].get("disabled", []))
+        assert "delta" in disabled
+        assert "epsilon" in disabled
 
         output = capsys.readouterr().out
         assert "skipped" in output
@@ -90,9 +92,8 @@ class TestSyncNewSkillAddedToEditableDir:
         assert "delta" in installed
         assert "epsilon" not in installed
 
-        with open(local_env.toml_path, "rb") as f:
-            config = tomllib.load(f)
-        entry = config["skills"]["editable-skills"]
+        data = load_skillset(local_env.toml_path)
+        entry = data["skills"]["editable-skills"]
         assert "delta" in entry["enabled"]
         assert "epsilon" in entry.get("disabled", [])
 
@@ -107,28 +108,26 @@ class TestSyncNewSkillAddedToEditableDir:
             assert (local_env.skills_dir / skill).exists()
 
     def test_toml_remains_valid_after_add_all(self, local_env, editable_dir):
-        """Toml is valid after adding all new skills."""
+        """Yaml is valid after adding all new skills."""
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="a"):
             cmd_sync(file=str(local_env.toml_path))
 
-        with open(local_env.toml_path, "rb") as f:
-            config = tomllib.load(f)
-        entry = config["skills"]["editable-skills"]
+        data = load_skillset(local_env.toml_path)
+        entry = data["skills"]["editable-skills"]
         assert "delta" in entry["enabled"]
         assert "epsilon" in entry["enabled"]
         assert "alpha" in entry["enabled"]
 
     def test_toml_remains_valid_after_ignore_all(self, local_env, editable_dir):
-        """Toml is valid after ignoring all new skills."""
+        """Yaml is valid after ignoring all new skills."""
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="i"):
             cmd_sync(file=str(local_env.toml_path))
 
-        with open(local_env.toml_path, "rb") as f:
-            config = tomllib.load(f)
-        entry = config["skills"]["editable-skills"]
+        data = load_skillset(local_env.toml_path)
+        entry = data["skills"]["editable-skills"]
         assert "delta" in entry["disabled"]
         assert "epsilon" in entry["disabled"]

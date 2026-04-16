@@ -1,12 +1,12 @@
 """Shared fixtures for editable skill integration tests."""
 
-import re
 from pathlib import Path
 from unittest.mock import patch  # noqa: F401
 
 import pytest
 
 from skillset.commands import cmd_add, cmd_sync  # noqa: F401
+from skillset.paths import load_skillset, save_skillset
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ALL_SKILLS = {"alpha", "beta", "gamma"}
@@ -14,7 +14,7 @@ ALL_SKILLS = {"alpha", "beta", "gamma"}
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    """Isolated environment with global scope (no local skillset.toml)."""
+    """Isolated environment with global scope (no local skillset.yaml)."""
     home = tmp_path / "home"
     project = tmp_path / "project"
     home.mkdir()
@@ -38,7 +38,7 @@ def env(tmp_path, monkeypatch):
 
 @pytest.fixture
 def local_env(tmp_path, monkeypatch):
-    """Isolated environment with a local skillset.toml (project scope)."""
+    """Isolated environment with a local skillset.yaml (project scope)."""
     home = tmp_path / "home"
     project = tmp_path / "project"
     home.mkdir()
@@ -57,8 +57,8 @@ def local_env(tmp_path, monkeypatch):
     (home / ".claude").mkdir(parents=True)
     (home / ".cache" / "skillset" / "repos").mkdir(parents=True)
 
-    toml_path = project / "skillset.toml"
-    toml_path.write_text("[skills]\n")
+    toml_path = project / "skillset.yaml"
+    toml_path.write_text("skills: {}\n")
 
     return type(
         "Env",
@@ -80,11 +80,13 @@ def installed_skills(skills_dir: Path) -> set[str]:
 
 
 def remove_skill_from_toml(toml_path: Path, skill_name: str) -> None:
-    """Remove a skill name from enabled/disabled lists in skillset.toml."""
-    content = toml_path.read_text()
-    quoted = f'"{re.escape(skill_name)}"'
-    # Drop from the middle or either end of a list.
-    content = re.sub(rf",\s*{quoted}", "", content)
-    content = re.sub(rf"{quoted}\s*,\s*", "", content)
-    content = re.sub(rf"{quoted}", "", content)
-    toml_path.write_text(content)
+    """Remove a skill name from every enabled/disabled list in skillset.yaml."""
+    data = load_skillset(toml_path)
+    for entry in (data.get("skills") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        for key in ("enabled", "disabled"):
+            items = entry.get(key)
+            if items and skill_name in items:
+                items.remove(skill_name)
+    save_skillset(toml_path, data)

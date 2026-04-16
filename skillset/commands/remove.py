@@ -90,7 +90,7 @@ def _remove_by_glob(skills_dir: Path, pattern: str) -> None:
 def cmd_clean(*, g: bool = False) -> None:
     """Remove all trial skills.
 
-    Default: clean local trial skills if skillset.toml found, otherwise global.
+    Default: clean local trial skills if skillset.yaml found, otherwise global.
     With --global: clean global trial skills.
     """
     manifest = load_manifest()
@@ -131,7 +131,7 @@ def _clean_trial_repo(repo_key: str, opts: dict, manifest: dict) -> int:
     """Clean skills for a single trial repo. Returns count of removed skills."""
     skills_dir = _resolve_clean_skills_dir(opts.get("scope", "global"))
     if skills_dir is None:
-        print(f"  Skipping {repo_key} (local scope, no skillset.toml or git repo)")
+        print(f"  Skipping {repo_key} (local scope, no skillset.yaml or git repo)")
         return 0
 
     removed = 0

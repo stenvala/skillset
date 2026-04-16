@@ -1,46 +1,50 @@
-"""Shared templates and constants for command handlers."""
+"""Shared templates for command handlers."""
 
 GLOBAL_SKILLSET_TEMPLATE = """\
-# Global skillset configuration (~/.claude/skillset.toml)
+# Global skillset configuration (~/.claude/skillset.yaml)
 # Skills are installed to ~/.claude/skills/
 #
-# Each entry is a sub-table keyed by "owner/repo":
+# Each entry under "skills:" is keyed by "owner/repo":
 #
-#   [skills."owner/repo"]
-#   enabled = ["*"]                         # link every skill in the repo
+# skills:
+#   owner/repo:
+#     enabled: ["*"]                     # link every skill in the repo
 #
-#   [skills."owner/repo"]
-#   enabled = ["skill-a", "skill-b"]        # link only these
-#   disabled = ["skill-c"]                  # explicitly skip (sync won't re-prompt)
+#   owner/repo:
+#     enabled: [skill-a, skill-b]        # link only these
+#     disabled: [skill-c]                # explicitly skip (sync won't re-prompt)
 #
-#   [skills."owner/repo"]
-#   path = "subdir"                         # skills live in a subdirectory
-#   editable = true                         # source is a local checkout
-#   source = "~/code/my-skills"
-#   enabled = ["*"]
+#   owner/repo:
+#     path: subdir                       # skills live in a subdirectory
+#     editable: true                     # source is a local checkout
+#     source: ~/code/my-skills
+#     enabled: ["*"]
 #
+# Glob patterns ("doc-*", "t?st", etc.) are expanded against available skills.
 # Run 'skillset sync' to install/update skills.
 
-[skills]
+skills: {}
 """
 
 LOCAL_SKILLSET_TEMPLATE = """\
-# Project skillset configuration (skillset.toml)
+# Project skillset configuration (skillset.yaml)
 # Skills are installed to .claude/skills/
 #
-# Each entry is a sub-table keyed by "owner/repo":
+# Each entry under "skills:" is keyed by "owner/repo":
 #
-#   [skills."owner/repo"]
-#   enabled = ["*"]                         # link every skill in the repo
+# skills:
+#   owner/repo:
+#     enabled: ["*"]                     # link every skill in the repo
 #
-#   [skills."owner/repo"]
-#   enabled = ["skill-a", "skill-b"]        # link only these
-#   disabled = ["skill-c"]                  # explicitly skip (sync won't re-prompt)
+#   owner/repo:
+#     enabled: [skill-a, skill-b]        # link only these
+#     disabled: [skill-c]                # explicitly skip (sync won't re-prompt)
 #
-#   [skills."owner/repo"]
-#   path = "subdir"                         # skills live in a subdirectory
+#   owner/repo:
+#     path: subdir                       # skills live in a subdirectory
 #
+# Glob patterns ("doc-*", "t?st", etc.) are expanded against available skills.
 # Run 'skillset sync' to install skills.
 
-[skills]
+skills: {}
 """

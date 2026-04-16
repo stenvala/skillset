@@ -13,6 +13,7 @@ from skillset.discovery import find_commands, find_skills
 from skillset.linking import is_managed, link_commands, link_skills
 from skillset.manifest import record_install
 from skillset.paths import (
+    SKILLSET_CONFIG_FILE,
     abbrev,
     add_to_skillset,
     find_skillset_root,
@@ -210,17 +211,19 @@ def _record_install(repo_dir, subpath, use_copy, is_local, trial, skills):
 
 
 def _ensure_toml_exists(is_editable, is_local, skillset_root):
-    """Create skillset.toml if missing and we're about to write to it.
+    """Create skillset.yaml if missing and we're about to write to it.
 
     Only auto-creates for editable sources -- otherwise `add` should fail loudly
-    when there's no toml, to nudge the user toward `skillset init` first.
+    when there's no config, to nudge the user toward `skillset init` first.
     """
     if not is_editable:
         return
-    toml_path = (skillset_root / "skillset.toml") if is_local else get_global_skillset_path()
+    toml_path = (
+        (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
+    )
     if not toml_path.exists():
         toml_path.parent.mkdir(parents=True, exist_ok=True)
-        toml_path.write_text("[skills]\n")
+        toml_path.write_text("skills: {}\n")
 
 
 def _register_in_toml(
@@ -233,8 +236,10 @@ def _register_in_toml(
     is_local,
     skillset_root,
 ):
-    """Register or update skillset.toml entry for this repo."""
-    toml_path = (skillset_root / "skillset.toml") if is_local else get_global_skillset_path()
+    """Register or update skillset.yaml entry for this repo."""
+    toml_path = (
+        (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
+    )
 
     written = add_to_skillset(
         toml_path,
@@ -265,7 +270,7 @@ def _register_in_toml(
 
 
 def cmd_init(*, g: bool = False) -> None:
-    """Initialize a skillset.toml file."""
+    """Initialize a skillset.yaml file."""
     if g:
         path = get_global_skillset_path()
         template = GLOBAL_SKILLSET_TEMPLATE
@@ -273,7 +278,7 @@ def cmd_init(*, g: bool = False) -> None:
         path = get_local_skillset_path()
         if path is None:
             print("Not in a git repository -- initializing in current directory")
-            path = Path.cwd() / "skillset.toml"
+            path = Path.cwd() / SKILLSET_CONFIG_FILE
         template = LOCAL_SKILLSET_TEMPLATE
 
     if path.exists():

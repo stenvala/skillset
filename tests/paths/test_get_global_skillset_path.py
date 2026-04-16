@@ -3,5 +3,5 @@
 from skillset.paths import get_global_skillset_path
 
 
-def test_returns_skillset_toml_under_home(home_dir):
-    assert get_global_skillset_path() == home_dir / ".claude" / "skillset.toml"
+def test_returns_skillset_yaml_under_home(home_dir):
+    assert get_global_skillset_path() == home_dir / ".claude" / "skillset.yaml"

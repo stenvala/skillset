@@ -1,21 +1,34 @@
 """Sync respects skill selections in editable entries."""
 
 import shutil
+import textwrap
 
 from skillset.commands import cmd_sync
 
 from .conftest import FIXTURES, installed_skills
 
 
+def _write_entry(toml_path, source, enabled, disabled=None):
+    body = textwrap.dedent(f"""\
+        skills:
+          editable-skills:
+            editable: true
+            source: {source}
+            enabled: {enabled!r}
+    """)
+    if disabled:
+        body += f"    disabled: {disabled!r}\n"
+    toml_path.write_text(body)
+
+
 class TestSyncEditableSelective:
     def test_sync_only_links_enabled(self, local_env):
-        """Write toml manually with alpha+gamma enabled, beta disabled."""
-        local_env.toml_path.write_text(
-            f'[skills."editable-skills"]\n'
-            f"editable = true\n"
-            f'source = "{FIXTURES}"\n'
-            f'enabled = ["alpha", "gamma"]\n'
-            f'disabled = ["beta"]\n'
+        """Write yaml manually with alpha+gamma enabled, beta disabled."""
+        _write_entry(
+            local_env.toml_path,
+            FIXTURES,
+            enabled=["alpha", "gamma"],
+            disabled=["beta"],
         )
 
         cmd_sync(file=str(local_env.toml_path))
@@ -30,12 +43,11 @@ class TestSyncEditableSelective:
         local_env.skills_dir.mkdir(parents=True, exist_ok=True)
         (local_env.skills_dir / "beta").symlink_to(FIXTURES / "beta")
 
-        local_env.toml_path.write_text(
-            f'[skills."editable-skills"]\n'
-            f"editable = true\n"
-            f'source = "{FIXTURES}"\n'
-            f'enabled = ["alpha", "gamma"]\n'
-            f'disabled = ["beta"]\n'
+        _write_entry(
+            local_env.toml_path,
+            FIXTURES,
+            enabled=["alpha", "gamma"],
+            disabled=["beta"],
         )
 
         cmd_sync(file=str(local_env.toml_path))
@@ -49,11 +61,10 @@ class TestSyncEditableSelective:
         editable_dir = tmp_path / "editable-skills"
         shutil.copytree(FIXTURES, editable_dir)
 
-        local_env.toml_path.write_text(
-            f'[skills."editable-skills"]\n'
-            f"editable = true\n"
-            f'source = "{editable_dir}"\n'
-            f'enabled = ["alpha", "beta", "gamma"]\n'
+        _write_entry(
+            local_env.toml_path,
+            editable_dir,
+            enabled=["alpha", "beta", "gamma"],
         )
 
         cmd_sync(file=str(local_env.toml_path))

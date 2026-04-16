@@ -9,6 +9,7 @@ from skillset.commands.add import cmd_add
 from skillset.linking import is_link, link_commands, link_skills
 from skillset.manifest import get_install_options
 from skillset.paths import (
+    SKILLSET_CONFIG_FILE,
     abbrev,
     find_skillset_root,
     get_cache_dir,
@@ -16,6 +17,7 @@ from skillset.paths import (
     get_global_commands_dir,
     get_global_skills_dir,
     get_global_skillset_path,
+    load_skillset,
 )
 from skillset.repo import clone_or_pull, get_repo_dir, parse_repo_spec
 
@@ -137,33 +139,29 @@ def _update_all_repos(cache_dir, g, copy, existing_only):
 
 
 def _resolve_toml_path(file, g):
-    """Resolve the skillset.toml file path."""
+    """Resolve the skillset.yaml file path."""
     if file:
         return Path(file)
     if g:
         return get_global_skillset_path()
     skillset_root = find_skillset_root()
     if skillset_root:
-        return skillset_root / "skillset.toml"
+        return skillset_root / SKILLSET_CONFIG_FILE
     return get_global_skillset_path()
 
 
 def cmd_apply(*, file: str | None = None, g: bool = False) -> None:
-    """Apply skillset.toml — install all declared skills."""
-    import tomllib
-
+    """Apply skillset.yaml — install all declared skills."""
     file_path = _resolve_toml_path(file, g)
 
     if not file_path.exists():
-        print(f"No skillset.toml found at {abbrev(file_path)}")
+        print(f"No skillset.yaml found at {abbrev(file_path)}")
         sys.exit(1)
 
-    with open(file_path, "rb") as f:
-        config = tomllib.load(f)
-
+    config = load_skillset(file_path)
     skills_config = config.get("skills")
     if skills_config is None:
-        print("No [skills] section found in skillset.toml")
+        print("No skills section found in skillset.yaml")
         sys.exit(1)
 
     _apply_links(config.get("links", {}))
@@ -184,7 +182,7 @@ def cmd_apply(*, file: str | None = None, g: bool = False) -> None:
 
 
 def _apply_links(links_config):
-    """Process [links] section from skillset.toml."""
+    """Process links section from skillset.yaml."""
     for local_path, target in links_config.items():
         link = Path(local_path)
         if link.is_symlink():
@@ -207,14 +205,29 @@ def _apply_links(links_config):
 
 
 def _parse_apply_entry(repo, value):
-    """Parse a single skills config entry."""
-    if isinstance(value, bool):
-        if not value:
-            return None, None, None
-        return None, False, None
-    if isinstance(value, list):
-        return value, False, None
-    if isinstance(value, dict):
-        return value.get("skills"), value.get("copy", False), value.get("path")
-    print(f"Invalid entry for {repo!r}")
-    sys.exit(1)
+    """Parse a single skills config entry under the enabled/disabled schema.
+
+    Returns (skills_filter, use_copy, subpath).
+    skills_filter is None for "all", otherwise a list of names to install.
+    """
+    if not isinstance(value, dict):
+        print(f"Invalid entry for {repo!r}: must be a mapping")
+        sys.exit(1)
+
+    enabled = value.get("enabled")
+    subpath = value.get("path")
+    use_copy = value.get("copy", False)
+
+    # Missing or ["*"] (or anything with a glob) → "install all" — cmd_add
+    # will re-discover and link the full set.
+    if enabled is None or any(_looks_like_glob(e) for e in enabled):
+        return None, use_copy, subpath
+
+    if not enabled:
+        return None, None, None  # explicitly nothing
+
+    return list(enabled), use_copy, subpath
+
+
+def _looks_like_glob(entry: str) -> bool:
+    return any(c in entry for c in "*?[")

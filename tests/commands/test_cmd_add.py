@@ -128,9 +128,11 @@ def test_add_trial(env, source_repo, capsys):
 
 
 def test_add_skill_by_name(env, source_repo, capsys):
-    # Set up skillset.toml with editable entry
-    toml_path = env.home / ".claude" / "skillset.toml"
-    toml_path.write_text(f'[skills]\n"my-lib" = {{editable = true, source = "{source_repo}"}}\n')
+    # Set up skillset.yaml with editable entry
+    yaml_path = env.home / ".claude" / "skillset.yaml"
+    yaml_path.write_text(
+        f"skills:\n  my-lib:\n    editable: true\n    source: {source_repo}\n"
+    )
 
     cmd_add(repo="skill-a")
 
@@ -139,16 +141,16 @@ def test_add_skill_by_name(env, source_repo, capsys):
 
 
 def test_add_skill_name_not_found_exits(env):
-    toml_path = env.home / ".claude" / "skillset.toml"
-    toml_path.write_text("[skills]\n")
+    yaml_path = env.home / ".claude" / "skillset.yaml"
+    yaml_path.write_text("skills: {}\n")
 
     with pytest.raises(SystemExit):
         cmd_add(repo="nonexistent")
 
 
-def test_add_registers_in_skillset_toml(env, source_repo, capsys):
-    toml_path = env.home / ".claude" / "skillset.toml"
-    toml_path.write_text("[skills]\n")
+def test_add_registers_in_skillset_yaml(env, source_repo, capsys):
+    yaml_path = env.home / ".claude" / "skillset.yaml"
+    yaml_path.write_text("skills: {}\n")
 
     with patch("skillset.commands._resolve.clone_or_pull", return_value=source_repo):
         with patch("skillset.commands._resolve.get_repo_dir", return_value=source_repo):
@@ -156,8 +158,9 @@ def test_add_registers_in_skillset_toml(env, source_repo, capsys):
                 with patch("builtins.input", return_value="y"):
                     cmd_add(repo="owner/repo")
 
-    content = toml_path.read_text()
-    assert '"owner/repo"' in content
+    from skillset.paths import load_skillset
+    data = load_skillset(yaml_path)
+    assert "owner/repo" in data.get("skills", {})
 
 
 def test_add_empty_repo_reports_nothing(env, tmp_path, capsys):

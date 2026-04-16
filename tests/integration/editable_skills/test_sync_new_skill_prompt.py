@@ -1,25 +1,28 @@
-"""After removing a skill entry from toml, sync detects it and prompts."""
+"""After removing a skill entry from yaml, sync detects it and prompts."""
 
-import tomllib
 from unittest.mock import patch
 
 from skillset.commands import cmd_add, cmd_sync
+from skillset.paths import load_skillset
 
 from .conftest import FIXTURES, remove_skill_from_toml
 
 
 class TestSyncEditableNewSkillPrompt:
     def _setup(self, local_env):
-        """Add two editable skills (gamma marked disabled), then drop gamma from toml."""
+        """Add two editable skills (gamma marked disabled), then drop gamma from yaml."""
         cmd_add(repo=str(FIXTURES), skills=["alpha", "beta"])
 
-        content = local_env.toml_path.read_text()
-        assert '"alpha"' in content and '"beta"' in content
-        assert 'disabled = ["gamma"]' in content
+        data = load_skillset(local_env.toml_path)
+        entry = data["skills"]["editable_skills/fixtures"]
+        assert "alpha" in entry["enabled"] and "beta" in entry["enabled"]
+        assert "gamma" in entry["disabled"]
 
         remove_skill_from_toml(local_env.toml_path, "gamma")
-        content = local_env.toml_path.read_text()
-        assert '"gamma"' not in content
+        data = load_skillset(local_env.toml_path)
+        entry = data["skills"]["editable_skills/fixtures"]
+        assert "gamma" not in entry.get("enabled", [])
+        assert "gamma" not in entry.get("disabled", [])
 
     def test_accept_new_skill(self, local_env, capsys):
         """User says 'y' -- gamma gets linked and appended to enabled."""
@@ -29,8 +32,9 @@ class TestSyncEditableNewSkillPrompt:
             cmd_sync(file=str(local_env.toml_path))
 
         assert (local_env.skills_dir / "gamma").exists()
-        content = local_env.toml_path.read_text()
-        assert '"gamma"' in content
+        data = load_skillset(local_env.toml_path)
+        entry = data["skills"]["editable_skills/fixtures"]
+        assert "gamma" in entry["enabled"]
 
         output = capsys.readouterr().out
         assert "New skills detected" in output
@@ -43,24 +47,22 @@ class TestSyncEditableNewSkillPrompt:
             cmd_sync(file=str(local_env.toml_path))
 
         assert not (local_env.skills_dir / "gamma" / "SKILL.md").exists()
-        with open(local_env.toml_path, "rb") as f:
-            config = tomllib.load(f)
-        entry = config["skills"]["editable_skills/fixtures"]
+        data = load_skillset(local_env.toml_path)
+        entry = data["skills"]["editable_skills/fixtures"]
         assert "gamma" in entry.get("disabled", [])
 
         output = capsys.readouterr().out
         assert "skipped" in output
 
-    def test_toml_remains_valid(self, local_env):
-        """After sync updates the toml, it's still valid TOML."""
+    def test_yaml_remains_valid(self, local_env):
+        """After sync updates the yaml, it's still valid YAML."""
         self._setup(local_env)
 
         with patch("builtins.input", return_value="y"):
             cmd_sync(file=str(local_env.toml_path))
 
-        with open(local_env.toml_path, "rb") as f:
-            config = tomllib.load(f)
-        entry = config["skills"]["editable_skills/fixtures"]
+        data = load_skillset(local_env.toml_path)
+        entry = data["skills"]["editable_skills/fixtures"]
         assert entry["editable"] is True
         assert "alpha" in entry["enabled"]
         assert "gamma" in entry["enabled"]

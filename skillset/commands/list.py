@@ -92,7 +92,7 @@ def _list_repos(cache_dir: Path) -> list[str]:
 
 
 def _resolve_project_dirs():
-    """Resolve project skills and commands dirs with skillset.toml fallback."""
+    """Resolve project skills and commands dirs with skillset.yaml fallback."""
     skills_dir = get_project_skills_dir()
     commands_dir = get_project_commands_dir()
     if skills_dir is None or commands_dir is None:

@@ -10,10 +10,12 @@ def test_finds_skill_in_editable_source(home_dir, tmp_path):
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("# my-skill\n")
 
-    # Set up skillset.toml pointing to the source
-    toml_path = home_dir / ".claude" / "skillset.toml"
-    toml_path.parent.mkdir(parents=True)
-    toml_path.write_text(f'[skills]\n"my-lib" = {{editable = true, source = "{source}"}}\n')
+    # Set up skillset.yaml pointing to the source
+    yaml_path = home_dir / ".claude" / "skillset.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(
+        f"skills:\n  my-lib:\n    editable: true\n    source: {source}\n"
+    )
 
     matches = find_skill("my-skill")
     assert len(matches) == 1
@@ -23,29 +25,31 @@ def test_finds_skill_in_editable_source(home_dir, tmp_path):
 
 
 def test_returns_empty_when_not_found(home_dir):
-    toml_path = home_dir / ".claude" / "skillset.toml"
-    toml_path.parent.mkdir(parents=True)
-    toml_path.write_text("[skills]\n")
+    yaml_path = home_dir / ".claude" / "skillset.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text("skills: {}\n")
 
     assert find_skill("nonexistent") == []
 
 
-def test_returns_empty_when_no_toml(home_dir):
+def test_returns_empty_when_no_yaml(home_dir):
     assert find_skill("anything") == []
 
 
-def test_skips_non_editable_entries(home_dir, tmp_path):
-    toml_path = home_dir / ".claude" / "skillset.toml"
-    toml_path.parent.mkdir(parents=True)
-    toml_path.write_text('[skills]\n"owner/repo" = true\n')
+def test_skips_non_dict_entries(home_dir, tmp_path):
+    yaml_path = home_dir / ".claude" / "skillset.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text("skills:\n  owner/repo:\n    enabled: ['*']\n")
 
     assert find_skill("some-skill") == []
 
 
 def test_skips_missing_source_dir(home_dir):
-    toml_path = home_dir / ".claude" / "skillset.toml"
-    toml_path.parent.mkdir(parents=True)
-    toml_path.write_text('[skills]\n"lib" = {editable = true, source = "/nonexistent/path"}\n')
+    yaml_path = home_dir / ".claude" / "skillset.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(
+        "skills:\n  lib:\n    editable: true\n    source: /nonexistent/path\n"
+    )
 
     assert find_skill("skill") == []
 
@@ -56,10 +60,10 @@ def test_with_subpath(home_dir, tmp_path):
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("# my-skill\n")
 
-    toml_path = home_dir / ".claude" / "skillset.toml"
-    toml_path.parent.mkdir(parents=True)
-    toml_path.write_text(
-        f'[skills]\n"lib" = {{editable = true, source = "{source}", path = "sub"}}\n'
+    yaml_path = home_dir / ".claude" / "skillset.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(
+        f"skills:\n  lib:\n    editable: true\n    source: {source}\n    path: sub\n"
     )
 
     matches = find_skill("my-skill")
@@ -67,9 +71,9 @@ def test_with_subpath(home_dir, tmp_path):
 
 
 def test_skips_editable_without_source(home_dir):
-    toml_path = home_dir / ".claude" / "skillset.toml"
-    toml_path.parent.mkdir(parents=True)
-    toml_path.write_text('[skills]\n"lib" = {editable = true}\n')
+    yaml_path = home_dir / ".claude" / "skillset.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text("skills:\n  lib:\n    editable: true\n")
 
     assert find_skill("skill") == []
 
@@ -95,9 +99,11 @@ def test_finds_skill_in_multiple_sources(home_dir, tmp_path):
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("# zaira\n")
 
-    toml_path = home_dir / ".claude" / "skillset.toml"
-    toml_path.parent.mkdir(parents=True)
-    toml_path.write_text(f'[skills]\n"my-lib" = {{editable = true, source = "{source}"}}\n')
+    yaml_path = home_dir / ".claude" / "skillset.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(
+        f"skills:\n  my-lib:\n    editable: true\n    source: {source}\n"
+    )
 
     # Set up cached repo
     cache_dir = home_dir / ".cache" / "skillset" / "repos" / "owner" / "repo"

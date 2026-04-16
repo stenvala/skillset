@@ -6,7 +6,7 @@ from pathlib import Path
 
 from skillset.discovery import find_skills
 from skillset.linking import create_dir_link, is_link, remove_link
-from skillset.paths import get_cache_dir, get_global_skillset_path
+from skillset.paths import get_cache_dir, get_global_skillset_path, load_skillset
 
 
 def is_local_path(spec: str) -> bool:
@@ -29,7 +29,7 @@ def register_local_lib(repo_dir: Path) -> None:
 def find_skill(skill_name: str) -> list[tuple[Path, str, str | None, bool]]:
     """Search all sources for a skill by name.
 
-    Searches editable sources in global skillset.toml and cached repos.
+    Searches editable sources in global skillset.yaml and cached repos.
     Returns list of (source_dir, toml_key, toml_source, is_editable) tuples.
     """
     matches: list[tuple[Path, str, str | None, bool]] = []
@@ -42,15 +42,12 @@ def find_skill(skill_name: str) -> list[tuple[Path, str, str | None, bool]]:
 
 
 def _search_editable_sources(skill_name, matches, seen_dirs):
-    """Search editable entries in global skillset.toml for a skill."""
-    import tomllib
-
+    """Search editable entries in global skillset.yaml for a skill."""
     toml_path = get_global_skillset_path()
     if not toml_path.exists():
         return
-    with open(toml_path, "rb") as f:
-        config = tomllib.load(f)
-    for key, value in config.get("skills", {}).items():
+    config = load_skillset(toml_path)
+    for key, value in (config.get("skills") or {}).items():
         if not isinstance(value, dict) or not value.get("editable"):
             continue
         source = value.get("source")
@@ -151,7 +148,7 @@ def prompt_skill_selection(
     Returns (filter, enabled, disabled):
       - (None, ["*"], None): add all -- wildcard selection
       - (set, list, list): selective -- filter has names to install now,
-        enabled/disabled are the explicit picks to persist in skillset.toml
+        enabled/disabled are the explicit picks to persist in skillset.yaml
     """
     names = sorted(s.name for s in available)
     print(f"\n{len(names)} skill(s) found:")

@@ -13,6 +13,7 @@ from skillset.paths import (
     get_global_commands_dir,
     get_global_skills_dir,
     get_global_skillset_path,
+    load_skillset,
     update_skillset_skills,
 )
 from skillset.repo import clone_or_pull, parse_repo_spec
@@ -35,24 +36,20 @@ def _expand_patterns(patterns: list[str], names: set[str]) -> set[str]:
 
 
 def cmd_sync(*, file: str | None = None, g: bool = False) -> None:
-    """Sync skills from skillset.toml -- pull repos, link skills, report new."""
-    import tomllib
-
+    """Sync skills from skillset.yaml -- pull repos, link skills, report new."""
     file_path = _resolve_toml_path(file, g)
     is_local = file_path != get_global_skillset_path()
 
     if not file_path.exists():
-        print(f"No skillset.toml at {abbrev(file_path)}")
+        print(f"No skillset.yaml at {abbrev(file_path)}")
         hint = "'skillset init'" if is_local else "'skillset init --global'"
         print(f"Run {hint} to create one.")
         sys.exit(1)
 
-    with open(file_path, "rb") as f:
-        config = tomllib.load(f)
-
-    skills_config = config.get("skills", {})
+    config = load_skillset(file_path)
+    skills_config = config.get("skills") or {}
     if not skills_config:
-        print("No [skills] entries in skillset.toml")
+        print("No skills entries in skillset.yaml")
         return
 
     skills_dir, commands_dir = _sync_dirs(is_local, file_path)

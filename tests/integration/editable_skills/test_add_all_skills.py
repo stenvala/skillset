@@ -1,8 +1,9 @@
-"""skillset add /path -- add all, then toml lists every skill as true."""
+"""skillset add /path -- add all, then yaml uses enabled: ['*']."""
 
 from unittest.mock import patch
 
 from skillset.commands import cmd_add
+from skillset.paths import load_skillset
 
 from .conftest import ALL_SKILLS, FIXTURES, installed_skills
 
@@ -18,6 +19,7 @@ class TestAddEditableAllSkills:
         with patch("builtins.input", return_value="y"):
             cmd_add(repo=str(FIXTURES))
 
-        content = local_env.toml_path.read_text()
-        assert 'enabled = ["*"]' in content
-        assert "disabled" not in content
+        data = load_skillset(local_env.toml_path)
+        entry = next(iter(data["skills"].values()))
+        assert list(entry["enabled"]) == ["*"]
+        assert "disabled" not in entry
