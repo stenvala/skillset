@@ -99,6 +99,7 @@ def _resolve_skill_filter(
     only: set[str] | None, available_names: list[str], target_dir: Path, existing_only: bool
 ) -> set[str] | None:
     """Resolve the skill name filter: apply existing_only, expand globs, fuzzy-match."""
+    quiet_missing = existing_only and only is None
     if existing_only:
         existing = {p.name for p in target_dir.iterdir() if p.is_dir() or p.is_symlink()}
         only = (only & existing) if only is not None else existing
@@ -112,11 +113,11 @@ def _resolve_skill_filter(
             matched = fnmatch.filter(available_names, name)
             if matched:
                 verified.update(matched)
-            else:
+            elif not quiet_missing:
                 print(f"  Pattern '{name}' matched no skills")
         elif name in available_names:
             verified.add(name)
-        else:
+        elif not quiet_missing:
             suggestion = fuzzy_match(name, available_names)
             if suggestion:
                 print(f"  Skill '{name}' not found. Did you mean '{suggestion}'?")
