@@ -6,7 +6,6 @@ import typer
 
 from skillset.commands import (
     cmd_add,
-    cmd_apply,
     cmd_clean,
     cmd_init,
     cmd_list,
@@ -90,20 +89,6 @@ def add(
         trial=trial,
         interactive=interactive,
     )
-
-
-@app.command()
-def apply(
-    file: Annotated[
-        str | None,
-        typer.Option(help="Path to skillset.yaml"),
-    ] = None,
-    global_: Annotated[
-        bool, typer.Option("-g", "--global", help="Apply global ~/.claude/skillset.yaml")
-    ] = False,
-) -> None:
-    """Install skills declared in skillset.yaml. Uses local if found, otherwise global."""
-    cmd_apply(file=file, g=global_)
 
 
 @app.command()

@@ -1,15 +1,18 @@
 """Command handler for update -- yaml-driven sync of declared skills."""
 
+import os
+import subprocess
 import sys
 from fnmatch import fnmatchcase
 from pathlib import Path
 
-from skillset.commands.apply import _resolve_toml_path
 from skillset.discovery import find_skills
 from skillset.linking import is_managed, link_commands, link_skills, remove_managed
 from skillset.manifest import record_install
 from skillset.paths import (
+    SKILLSET_CONFIG_FILE,
     abbrev,
+    find_skillset_root,
     get_global_commands_dir,
     get_global_skills_dir,
     get_global_skillset_path,
@@ -17,6 +20,18 @@ from skillset.paths import (
     update_skillset_skills,
 )
 from skillset.repo import clone_or_pull, parse_repo_spec
+
+
+def _resolve_toml_path(file, g):
+    """Resolve the skillset.yaml file path."""
+    if file:
+        return Path(file)
+    if g:
+        return get_global_skillset_path()
+    skillset_root = find_skillset_root()
+    if skillset_root:
+        return skillset_root / SKILLSET_CONFIG_FILE
+    return get_global_skillset_path()
 
 
 def _is_glob(pattern: str) -> bool:
@@ -47,6 +62,8 @@ def cmd_update(*, file: str | None = None, g: bool = False) -> None:
         sys.exit(1)
 
     config = load_skillset(file_path)
+    _apply_links(config.get("links", {}))
+
     skills_config = config.get("skills") or {}
     if not skills_config:
         print("No skills entries in skillset.yaml")
@@ -73,6 +90,29 @@ def cmd_update(*, file: str | None = None, g: bool = False) -> None:
     total_linked += _prompt_for_new_skills(new_skills_found, new_skills_ctx, skills_dir, file_path)
 
     print(f"\nUpdate complete ({total_linked} skill(s) linked)")
+
+
+def _apply_links(links_config):
+    """Process the top-level `links:` section: arbitrary symlinks in the project."""
+    for local_path, target in links_config.items():
+        link = Path(local_path)
+        if link.is_symlink():
+            print(f"Link already exists: {local_path} -> {os.readlink(local_path)}")
+        elif link.exists():
+            print(f"Skipping {local_path}: exists and is not a symlink")
+        else:
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(target)
+            print(f"Linked {local_path} -> {target}")
+        ignored = (
+            subprocess.run(
+                ["git", "check-ignore", "-q", local_path],
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+        if not ignored:
+            print(f"  Warning: {local_path} is not in .gitignore")
 
 
 def _update_dirs(is_local, file_path):

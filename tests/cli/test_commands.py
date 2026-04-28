@@ -81,12 +81,6 @@ def test_clean_invokes_cmd_clean():
         mock.assert_called_once_with(g=False)
 
 
-def test_apply_invokes_cmd_apply():
-    with patch("skillset.cli.cmd_apply") as mock:
-        runner.invoke(app, ["apply"])
-        mock.assert_called_once_with(file=None, g=False)
-
-
 def test_main_function():
     with patch("skillset.cli.app") as mock_app:
         from skillset.cli import main

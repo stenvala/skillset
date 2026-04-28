@@ -1,5 +1,6 @@
 """Tests for skillset.commands.cmd_update."""
 
+import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -260,7 +261,7 @@ def test_sync_global_flag(env, source_repo, capsys):
 
 def test_sync_local_scope(env, source_repo, capsys, monkeypatch):
     """Sync with local skillset.yaml found via find_skillset_root."""
-    monkeypatch.setattr("skillset.commands.apply.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.update.find_skillset_root", lambda: env.project)
     yaml_file = env.project / "skillset.yaml"
     yaml_file.write_text(f"skills:\n  {source_repo}:\n    enabled: ['*']\n")
 
@@ -277,7 +278,7 @@ def test_sync_local_scope(env, source_repo, capsys, monkeypatch):
 
 def test_sync_local_file_not_found(env, capsys, monkeypatch):
     """Local sync file not found shows local hint."""
-    monkeypatch.setattr("skillset.commands.apply.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.update.find_skillset_root", lambda: env.project)
 
     with pytest.raises(SystemExit):
         cmd_update()
@@ -294,3 +295,53 @@ def test_sync_dict_invalid_repo_spec(env, capsys):
     cmd_update()
     output = capsys.readouterr().out
     assert "Invalid repo format" in output
+
+
+def test_links_section(env, capsys):
+    yaml_file = env.home / ".claude" / "skillset.yaml"
+    target = env.tmp / "target_file"
+    target.write_text("content")
+    link_path = env.project / "mylink"
+
+    yaml_file.write_text(f"skills: {{}}\nlinks:\n  {link_path}: {target}\n")
+
+    with patch("skillset.commands.update.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
+        cmd_update()
+
+    output = capsys.readouterr().out
+    assert "Linked" in output
+
+
+def test_links_existing_symlink(env, capsys):
+    yaml_file = env.home / ".claude" / "skillset.yaml"
+    target = env.tmp / "target"
+    target.write_text("x")
+    link_path = env.project / "mylink"
+    link_path.symlink_to(target)
+
+    yaml_file.write_text(f"skills: {{}}\nlinks:\n  {link_path}: {target}\n")
+
+    with patch("skillset.commands.update.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        cmd_update()
+
+    output = capsys.readouterr().out
+    assert "already exists" in output
+
+
+def test_links_existing_file_skipped(env, capsys):
+    yaml_file = env.home / ".claude" / "skillset.yaml"
+    target = env.tmp / "target"
+    target.write_text("x")
+    existing = env.project / "myfile"
+    existing.write_text("real file")
+
+    yaml_file.write_text(f"skills: {{}}\nlinks:\n  {existing}: {target}\n")
+
+    with patch("skillset.commands.update.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        cmd_update()
+
+    output = capsys.readouterr().out
+    assert "Skipping" in output
