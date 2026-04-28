@@ -18,7 +18,7 @@ def env(tmp_path, monkeypatch):
     # Default to global scope (no skillset.toml found) — tests can override
     for mod in (
         "skillset.commands.add",
-        "skillset.commands.update",
+        "skillset.commands.apply",
         "skillset.commands.remove",
         "skillset.commands.list",
     ):

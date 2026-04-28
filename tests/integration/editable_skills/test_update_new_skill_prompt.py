@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from skillset.commands import cmd_add, cmd_sync
+from skillset.commands import cmd_add, cmd_update
 from skillset.paths import load_skillset
 
 from .conftest import FIXTURES, remove_skill_from_toml
@@ -29,7 +29,7 @@ class TestSyncEditableNewSkillPrompt:
         self._setup(local_env)
 
         with patch("builtins.input", return_value="y"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         assert (local_env.skills_dir / "gamma").exists()
         data = load_skillset(local_env.toml_path)
@@ -44,7 +44,7 @@ class TestSyncEditableNewSkillPrompt:
         self._setup(local_env)
 
         with patch("builtins.input", return_value="n"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         assert not (local_env.skills_dir / "gamma" / "SKILL.md").exists()
         data = load_skillset(local_env.toml_path)
@@ -59,7 +59,7 @@ class TestSyncEditableNewSkillPrompt:
         self._setup(local_env)
 
         with patch("builtins.input", return_value="y"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         data = load_skillset(local_env.toml_path)
         entry = data["skills"]["editable_skills/fixtures"]
@@ -72,7 +72,7 @@ class TestSyncEditableNewSkillPrompt:
         self._setup(local_env)
 
         with patch("builtins.input", return_value="n"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         assert (local_env.skills_dir / "alpha").exists()
         assert (local_env.skills_dir / "beta").exists()

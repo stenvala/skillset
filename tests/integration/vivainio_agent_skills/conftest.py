@@ -29,7 +29,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr("skillset.paths.get_git_root", lambda: project)
     for mod in (
         "skillset.commands.add",
-        "skillset.commands.update",
+        "skillset.commands.apply",
         "skillset.commands.remove",
         "skillset.commands.list",
     ):

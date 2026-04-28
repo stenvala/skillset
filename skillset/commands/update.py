@@ -1,233 +1,319 @@
-"""Command handlers for update and apply."""
+"""Command handler for update -- yaml-driven sync of declared skills."""
 
-import os
-import subprocess
 import sys
+from fnmatch import fnmatchcase
 from pathlib import Path
 
-from skillset.commands.add import cmd_add
-from skillset.linking import is_link, link_commands, link_skills
-from skillset.manifest import get_install_options
+from skillset.commands.apply import _resolve_toml_path
+from skillset.discovery import find_skills
+from skillset.linking import is_managed, link_commands, link_skills, remove_managed
+from skillset.manifest import record_install
 from skillset.paths import (
-    SKILLSET_CONFIG_FILE,
     abbrev,
-    find_skillset_root,
-    get_cache_dir,
-    get_git_root,
     get_global_commands_dir,
     get_global_skills_dir,
     get_global_skillset_path,
     load_skillset,
+    update_skillset_skills,
 )
-from skillset.repo import clone_or_pull, get_repo_dir, parse_repo_spec
+from skillset.repo import clone_or_pull, parse_repo_spec
 
 
-def _resolve_update_options(
-    repo_key: str, *, copy: bool = False, g: bool = False
-) -> tuple[str | None, bool, str]:
-    """Resolve subpath/copy/scope from manifest, with CLI flags as overrides."""
-    opts = get_install_options(repo_key) or {}
-    use_copy = copy or opts.get("copy", False)
-    subpath = opts.get("subpath")
-    scope = opts.get("scope", "global")
-    if g:
-        scope = "global"
-    return subpath, use_copy, scope
+def _is_glob(pattern: str) -> bool:
+    """Check if a list entry is a glob pattern."""
+    return any(c in pattern for c in "*?[")
 
 
-def _scope_dirs(scope, skillset_root):
-    """Return (skills_dir, commands_dir) for the given scope."""
-    if scope == "global" or not skillset_root:
-        return get_global_skills_dir(), get_global_commands_dir()
-    return (
-        skillset_root / ".claude" / "skills",
-        skillset_root / ".claude" / "commands",
-    )
+def _expand_patterns(patterns: list[str], names: set[str]) -> set[str]:
+    """Expand glob entries against available names. Literal entries pass through."""
+    result: set[str] = set()
+    for p in patterns:
+        if _is_glob(p):
+            result |= {n for n in names if fnmatchcase(n, p)}
+        else:
+            result.add(p)
+    return result
 
 
-def cmd_update(
-    *,
-    repo: str | None = None,
-    g: bool = False,
-    copy: bool = False,
-    new: bool = False,
-) -> None:
-    """Update repo(s) and refresh links (or copies) and permissions."""
-    cache_dir = get_cache_dir()
-    existing_only = not new
-
-    if repo:
-        _update_single_repo(repo, g, copy, existing_only)
-    else:
-        _update_all_repos(cache_dir, g, copy, existing_only)
-
-
-def _update_single_repo(repo, g, copy, existing_only):
-    """Update a single repo by spec."""
-    try:
-        owner, repo_name = parse_repo_spec(repo)
-    except ValueError as e:
-        print(str(e))
-        sys.exit(1)
-
-    repo_dir = get_repo_dir(owner, repo_name)
-    if not repo_dir.exists():
-        print(f"Repo {repo} not installed. Use 'skillset add {repo}' first.")
-        sys.exit(1)
-
-    if not is_link(repo_dir):
-        clone_or_pull(owner, repo_name)
-
-    repo_key = f"{owner}/{repo_name}"
-    subpath, use_copy, scope = _resolve_update_options(repo_key, copy=copy, g=g)
-    target_dir = repo_dir / subpath if subpath else repo_dir
-
-    skillset_root = find_skillset_root()
-    skills_dir, commands_dir = _scope_dirs(scope, skillset_root)
-    linked_skills = link_skills(target_dir, skills_dir, copy=use_copy, existing_only=existing_only)
-    linked_commands = link_commands(
-        target_dir, commands_dir, copy=use_copy, existing_only=existing_only
-    )
-    print(f"Updated {len(linked_skills)} skill(s), {len(linked_commands)} command(s)")
-
-
-def _update_all_repos(cache_dir, g, copy, existing_only):
-    """Update all cached repos."""
-    total_skills = 0
-    total_commands = 0
-
-    if cache_dir.exists():
-        for owner_dir in cache_dir.iterdir():
-            if not owner_dir.is_dir():
-                continue
-            for repo_dir in owner_dir.iterdir():
-                if not repo_dir.is_dir():
-                    continue
-                if not is_link(repo_dir):
-                    clone_or_pull(owner_dir.name, repo_dir.name)
-                resolved = repo_dir.resolve() if is_link(repo_dir) else repo_dir
-                repo_key = f"{owner_dir.name}/{repo_dir.name}"
-                subpath, use_copy, scope = _resolve_update_options(repo_key, copy=copy, g=g)
-                source_dir = resolved / subpath if subpath else resolved
-
-                root = find_skillset_root()
-                if scope == "local" and root is None and get_git_root() is None:
-                    print(f"  Skipping {repo_key} (local scope, not in a git repo)")
-                    continue
-                skills_dir, commands_dir = _scope_dirs(scope, root)
-                total_skills += len(
-                    link_skills(
-                        source_dir,
-                        skills_dir,
-                        copy=use_copy,
-                        existing_only=existing_only,
-                    )
-                )
-                total_commands += len(
-                    link_commands(
-                        source_dir,
-                        commands_dir,
-                        copy=use_copy,
-                        existing_only=existing_only,
-                    )
-                )
-
-    if total_skills == 0 and total_commands == 0:
-        print("No repos installed")
-    else:
-        print(f"Updated ({total_skills} skill(s), {total_commands} command(s))")
-
-
-def _resolve_toml_path(file, g):
-    """Resolve the skillset.yaml file path."""
-    if file:
-        return Path(file)
-    if g:
-        return get_global_skillset_path()
-    skillset_root = find_skillset_root()
-    if skillset_root:
-        return skillset_root / SKILLSET_CONFIG_FILE
-    return get_global_skillset_path()
-
-
-def cmd_apply(*, file: str | None = None, g: bool = False) -> None:
-    """Apply skillset.yaml — install all declared skills."""
+def cmd_update(*, file: str | None = None, g: bool = False) -> None:
+    """Update from skillset.yaml -- pull repos, link enabled, unlink disabled."""
     file_path = _resolve_toml_path(file, g)
+    is_local = file_path != get_global_skillset_path()
 
     if not file_path.exists():
-        print(f"No skillset.yaml found at {abbrev(file_path)}")
+        print(f"No skillset.yaml at {abbrev(file_path)}")
+        hint = "'skillset init'" if is_local else "'skillset init --global'"
+        print(f"Run {hint} to create one.")
         sys.exit(1)
 
     config = load_skillset(file_path)
-    skills_config = config.get("skills")
-    if skills_config is None:
-        print("No skills section found in skillset.yaml")
-        sys.exit(1)
+    skills_config = config.get("skills") or {}
+    if not skills_config:
+        print("No skills entries in skillset.yaml")
+        return
 
-    _apply_links(config.get("links", {}))
+    skills_dir, commands_dir = _update_dirs(is_local, file_path)
+    scope = "local" if is_local else "global"
+    total_linked = 0
+    new_skills_found: dict[str, list[str]] = {}
+    new_skills_ctx: dict[str, tuple[Path, bool]] = {}
 
-    for repo, value in skills_config.items():
-        entry_skills, entry_copy, entry_subpath = _parse_apply_entry(repo, value)
-        if entry_skills is None and entry_copy is None:
-            continue
-        print(f"\nAdding {repo}...")
-        cmd_add(
-            repo=repo,
-            skills=entry_skills,
-            subpath=entry_subpath,
-            copy=entry_copy,
-            no_cache=False,
-            trial=False,
+    for repo_key, value in skills_config.items():
+        linked = _update_entry(
+            repo_key,
+            value,
+            skills_dir,
+            commands_dir,
+            scope,
+            new_skills_found,
+            new_skills_ctx,
         )
+        total_linked += linked
+
+    total_linked += _prompt_for_new_skills(new_skills_found, new_skills_ctx, skills_dir, file_path)
+
+    print(f"\nUpdate complete ({total_linked} skill(s) linked)")
 
 
-def _apply_links(links_config):
-    """Process links section from skillset.yaml."""
-    for local_path, target in links_config.items():
-        link = Path(local_path)
-        if link.is_symlink():
-            print(f"Link already exists: {local_path} -> {os.readlink(local_path)}")
-        elif link.exists():
-            print(f"Skipping {local_path}: exists and is not a symlink")
-        else:
-            link.parent.mkdir(parents=True, exist_ok=True)
-            link.symlink_to(target)
-            print(f"Linked {local_path} -> {target}")
-        ignored = (
-            subprocess.run(
-                ["git", "check-ignore", "-q", local_path],
-                capture_output=True,
-            ).returncode
-            == 0
-        )
-        if not ignored:
-            print(f"  Warning: {local_path} is not in .gitignore")
+def _update_dirs(is_local, file_path):
+    """Return (skills_dir, commands_dir) for update."""
+    if not is_local:
+        return get_global_skills_dir(), get_global_commands_dir()
+    root = file_path.parent
+    return root / ".claude" / "skills", root / ".claude" / "commands"
 
 
-def _parse_apply_entry(repo, value):
-    """Parse a single skills config entry under the enabled/disabled schema.
-
-    Returns (skills_filter, use_copy, subpath).
-    skills_filter is None for "all", otherwise a list of names to install.
-    """
+def _update_entry(repo_key, value, skills_dir, commands_dir, scope, new_found, new_ctx):
+    """Update a single entry. Returns count of linked skills."""
     if not isinstance(value, dict):
-        print(f"Invalid entry for {repo!r}: must be a mapping")
-        sys.exit(1)
+        print(f"\nSkipping {repo_key}: entry must be a sub-table")
+        return 0
+    return _update_dict_entry(
+        repo_key,
+        value,
+        skills_dir,
+        commands_dir,
+        scope,
+        new_found,
+        new_ctx,
+    )
 
-    enabled = value.get("enabled")
-    subpath = value.get("path")
+
+def _update_dict_entry(
+    repo_key,
+    value,
+    skills_dir,
+    commands_dir,
+    scope,
+    new_found,
+    new_ctx,
+):
+    """Update a sub-table entry with enabled/disabled lists."""
+    editable = value.get("editable", False)
+    path_str = value.get("path")
+    source_str = value.get("source")
     use_copy = value.get("copy", False)
+    enabled_raw = value.get("enabled")
+    disabled_raw = value.get("disabled", [])
 
-    # Missing or ["*"] (or anything with a glob) → "install all" — cmd_add
-    # will re-discover and link the full set.
-    if enabled is None or any(_looks_like_glob(e) for e in enabled):
-        return None, use_copy, subpath
+    if enabled_raw is not None and not isinstance(enabled_raw, list):
+        print(f"\nSkipping {repo_key}: 'enabled' must be a list")
+        return 0
+    if not isinstance(disabled_raw, list):
+        print(f"\nSkipping {repo_key}: 'disabled' must be a list")
+        return 0
 
-    if not enabled:
-        return None, None, None  # explicitly nothing
+    source_dir, repo_dir, owner, repo_name = _resolve_update_source(
+        repo_key,
+        editable,
+        source_str,
+        path_str,
+    )
+    if source_dir is None:
+        return 0
 
-    return list(enabled), use_copy, subpath
+    available = find_skills(source_dir)
+    available_names = {s.name for s in available}
+    disabled_set = _expand_patterns(disabled_raw, available_names)
+
+    if enabled_raw is None:
+        # No enabled key at all -- behave like ["*"] for ergonomics.
+        enabled_declared = available_names - disabled_set
+        tracked = available_names
+    else:
+        enabled_expanded = _expand_patterns(enabled_raw, available_names)
+        enabled_declared = enabled_expanded - disabled_set
+        # "new" = anything in available not yet matched by a pattern and not
+        # listed literally. Patterns that hit a name suppress its prompt.
+        literals = {p for p in (enabled_raw + disabled_raw) if not _is_glob(p)}
+        tracked = enabled_expanded | disabled_set | literals
+
+    total = _update_lists(
+        enabled_declared,
+        disabled_set,
+        available_names,
+        tracked,
+        source_dir,
+        skills_dir,
+        commands_dir,
+        use_copy,
+        repo_key,
+        new_found,
+        new_ctx,
+    )
+
+    if not editable:
+        record_install(
+            f"{owner}/{repo_name}",
+            subpath=path_str,
+            copy=use_copy,
+            scope=scope,
+        )
+    return total
 
 
-def _looks_like_glob(entry: str) -> bool:
-    return any(c in entry for c in "*?[")
+def _resolve_update_source(repo_key, editable, source_str, path_str):
+    """Resolve source directory for update."""
+    owner = repo_name = None
+    if editable:
+        return _resolve_editable_source(repo_key, source_str, path_str, owner, repo_name)
+
+    print(f"\nUpdating {repo_key}...")
+    try:
+        owner, repo_name = parse_repo_spec(repo_key)
+    except ValueError as e:
+        print(f"  {e}")
+        return None, None, None, None
+    repo_dir = clone_or_pull(owner, repo_name)
+    source_dir = repo_dir / path_str if path_str else repo_dir
+    if path_str and not source_dir.is_dir():
+        print(f"  Path not found in repo: {path_str}")
+        return None, None, None, None
+    return source_dir, repo_dir, owner, repo_name
+
+
+def _resolve_editable_source(repo_key, source_str, path_str, owner, repo_name):
+    """Resolve editable source directory for update."""
+    if not source_str:
+        print(f"\n{repo_key}: editable requires 'source' path")
+        return None, None, None, None
+    print(f"\nUpdating {repo_key} (editable)...")
+    base_dir = Path(source_str).expanduser().resolve()
+    source_dir = base_dir / path_str if path_str else base_dir
+    if not source_dir.is_dir():
+        if path_str:
+            print(f"  Path not found: {path_str} in {source_str}")
+        else:
+            print(f"  Source not found: {source_str}")
+        return None, None, None, None
+    return source_dir, base_dir, owner, repo_name
+
+
+def _update_lists(
+    enabled_declared,
+    disabled_set,
+    available_names,
+    tracked,
+    source_dir,
+    skills_dir,
+    commands_dir,
+    use_copy,
+    repo_key,
+    new_found,
+    new_ctx,
+):
+    """Link enabled (minus missing), unlink disabled, report new untracked skills."""
+    new = available_names - tracked
+    if new:
+        new_found[repo_key] = sorted(new)
+        new_ctx[repo_key] = (source_dir, use_copy)
+
+    to_link = enabled_declared & available_names
+    total = 0
+    if to_link:
+        linked = link_skills(source_dir, skills_dir, only=to_link, copy=use_copy)
+        total = len(linked)
+        for name in sorted(linked):
+            print(f"  + {name}")
+
+    # Commands come along for the ride whenever we link anything from the source.
+    link_commands(source_dir, commands_dir, copy=use_copy)
+
+    for skill_name in sorted(disabled_set):
+        skill_path = skills_dir / skill_name
+        if skill_path.exists() and is_managed(skill_path):
+            remove_managed(skill_path)
+            print(f"  - {skill_name} (excluded)")
+
+    # Clean up stale links for skills that were enabled but no longer exist in source.
+    for skill_name in sorted(enabled_declared - available_names):
+        skill_path = skills_dir / skill_name
+        if is_managed(skill_path):
+            remove_managed(skill_path)
+            print(f"  - {skill_name} (removed from source)")
+
+    return total
+
+
+def _collect_new_skill_decisions(names, source_dir, skills_dir, use_copy):
+    """Collect user decisions for new skills. Returns (enabled, disabled, linked_count)."""
+    prompt = "\nAdd [a]ll / [i]gnore all / [s]elect individually? [a/i/s] "
+    choice = input(prompt).strip().lower()
+
+    if choice in ("a", "all"):
+        linked = link_skills(source_dir, skills_dir, only=set(names), copy=use_copy)
+        for name in names:
+            print(f"  + {name}")
+        return list(names), [], len(linked)
+    if choice in ("i", "ignore"):
+        for name in names:
+            print(f"  - {name} (skipped)")
+        return [], list(names), 0
+    return _collect_individual_decisions(names, source_dir, skills_dir, use_copy)
+
+
+def _collect_individual_decisions(names, source_dir, skills_dir, use_copy):
+    """Collect individual yes/no decisions for each skill."""
+    enabled: list[str] = []
+    disabled: list[str] = []
+    total = 0
+    for name in names:
+        accepted = input(f"  Add {name}? [y/N] ").strip().lower() in ("y", "yes")
+        if accepted:
+            enabled.append(name)
+            total += len(link_skills(source_dir, skills_dir, only={name}, copy=use_copy))
+            print(f"  + {name}")
+        else:
+            disabled.append(name)
+            print(f"  - {name} (skipped)")
+    return enabled, disabled, total
+
+
+def _prompt_for_new_skills(new_skills_found, new_skills_ctx, skills_dir, file_path):
+    """Prompt user for new untracked skills. Returns count of linked skills."""
+    if not new_skills_found:
+        return 0
+
+    total = 0
+    print("\n--- New skills detected ---")
+    for repo_key, names in new_skills_found.items():
+        source_dir, use_copy = new_skills_ctx[repo_key]
+        print(f"\n{repo_key}: {len(names)} new skill(s):")
+        for name in names:
+            print(f"  {name}")
+
+        enabled, disabled, linked = _collect_new_skill_decisions(
+            names, source_dir, skills_dir, use_copy
+        )
+        total += linked
+
+        if enabled or disabled:
+            update_skillset_skills(
+                file_path,
+                repo_key,
+                add_enabled=enabled,
+                add_disabled=disabled,
+            )
+            print(f"  Updated {abbrev(file_path)}")
+
+    return total

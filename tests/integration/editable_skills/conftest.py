@@ -5,7 +5,7 @@ from unittest.mock import patch  # noqa: F401
 
 import pytest
 
-from skillset.commands import cmd_add, cmd_sync  # noqa: F401
+from skillset.commands import cmd_add, cmd_update  # noqa: F401
 from skillset.paths import load_skillset, save_skillset
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -24,7 +24,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr("skillset.paths.get_git_root", lambda: project)
     for mod in (
         "skillset.commands.add",
-        "skillset.commands.update",
+        "skillset.commands.apply",
         "skillset.commands.remove",
         "skillset.commands.list",
     ):
@@ -48,7 +48,7 @@ def local_env(tmp_path, monkeypatch):
     monkeypatch.setattr("skillset.paths.get_git_root", lambda: project)
     for mod in (
         "skillset.commands.add",
-        "skillset.commands.update",
+        "skillset.commands.apply",
         "skillset.commands.remove",
         "skillset.commands.list",
     ):

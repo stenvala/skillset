@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from skillset.commands import cmd_sync
+from skillset.commands import cmd_update
 from skillset.paths import load_skillset
 
 from .conftest import FIXTURES, installed_skills
@@ -33,7 +33,7 @@ class TestSyncNewSkillAddedToEditableDir:
             "    enabled: [alpha, beta, gamma]\n"
         )
 
-        cmd_sync(file=str(local_env.toml_path))
+        cmd_update(file=str(local_env.toml_path))
         assert installed_skills(local_env.skills_dir) == {"alpha", "beta", "gamma"}
 
         for name in ("delta", "epsilon"):
@@ -46,7 +46,7 @@ class TestSyncNewSkillAddedToEditableDir:
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="a"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         installed = installed_skills(local_env.skills_dir)
         assert "delta" in installed
@@ -66,7 +66,7 @@ class TestSyncNewSkillAddedToEditableDir:
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="i"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         installed = installed_skills(local_env.skills_dir)
         assert "delta" not in installed
@@ -86,7 +86,7 @@ class TestSyncNewSkillAddedToEditableDir:
 
         responses = iter(["s", "y", "n"])
         with patch("builtins.input", side_effect=responses):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         installed = installed_skills(local_env.skills_dir)
         assert "delta" in installed
@@ -102,7 +102,7 @@ class TestSyncNewSkillAddedToEditableDir:
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="i"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         for skill in ("alpha", "beta", "gamma"):
             assert (local_env.skills_dir / skill).exists()
@@ -112,7 +112,7 @@ class TestSyncNewSkillAddedToEditableDir:
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="a"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         data = load_skillset(local_env.toml_path)
         entry = data["skills"]["editable-skills"]
@@ -125,7 +125,7 @@ class TestSyncNewSkillAddedToEditableDir:
         self._setup(local_env, editable_dir)
 
         with patch("builtins.input", return_value="i"):
-            cmd_sync(file=str(local_env.toml_path))
+            cmd_update(file=str(local_env.toml_path))
 
         data = load_skillset(local_env.toml_path)
         entry = data["skills"]["editable-skills"]

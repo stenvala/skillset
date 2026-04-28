@@ -3,7 +3,7 @@
 import shutil
 import textwrap
 
-from skillset.commands import cmd_sync
+from skillset.commands import cmd_update
 
 from .conftest import FIXTURES, installed_skills
 
@@ -31,7 +31,7 @@ class TestSyncEditableSelective:
             disabled=["beta"],
         )
 
-        cmd_sync(file=str(local_env.toml_path))
+        cmd_update(file=str(local_env.toml_path))
 
         installed = installed_skills(local_env.skills_dir)
         assert "alpha" in installed
@@ -50,7 +50,7 @@ class TestSyncEditableSelective:
             disabled=["beta"],
         )
 
-        cmd_sync(file=str(local_env.toml_path))
+        cmd_update(file=str(local_env.toml_path))
 
         assert not (local_env.skills_dir / "beta").exists()
 
@@ -67,13 +67,13 @@ class TestSyncEditableSelective:
             enabled=["alpha", "beta", "gamma"],
         )
 
-        cmd_sync(file=str(local_env.toml_path))
+        cmd_update(file=str(local_env.toml_path))
         assert installed_skills(local_env.skills_dir) == {"alpha", "beta", "gamma"}
 
         # Remove beta from the source directory
         shutil.rmtree(editable_dir / "beta")
 
-        cmd_sync(file=str(local_env.toml_path))
+        cmd_update(file=str(local_env.toml_path))
 
         installed = installed_skills(local_env.skills_dir)
         assert "alpha" in installed

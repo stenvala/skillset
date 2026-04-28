@@ -11,7 +11,6 @@ from skillset.commands import (
     cmd_init,
     cmd_list,
     cmd_remove,
-    cmd_sync,
     cmd_update,
 )
 
@@ -109,15 +108,16 @@ def apply(
 
 @app.command()
 def update(
-    repo: Annotated[str | None, typer.Argument(help="Specific repo to update (optional)")] = None,
-    global_: Annotated[bool, typer.Option("-g", "--global", help="Update global skills")] = False,
-    copy: Annotated[bool, typer.Option("--copy", help="Copy files instead of symlinking")] = False,
-    new: Annotated[
-        bool, typer.Option("--new", help="Also link new skills/commands not currently linked")
+    file: Annotated[
+        str | None,
+        typer.Option(help="Path to skillset.yaml"),
+    ] = None,
+    global_: Annotated[
+        bool, typer.Option("-g", "--global", help="Update from global ~/.claude/skillset.yaml")
     ] = False,
 ) -> None:
-    """Update repo(s) and refresh links."""
-    cmd_update(repo=repo, g=global_, copy=copy, new=new)
+    """Update skills from skillset.yaml -- pull repos, link enabled, unlink disabled."""
+    cmd_update(file=file, g=global_)
 
 
 @app.command()
@@ -128,20 +128,6 @@ def init(
 ) -> None:
     """Create a skillset.yaml file. Default: local at git root. --global for ~/.claude/."""
     cmd_init(g=global_)
-
-
-@app.command()
-def sync(
-    file: Annotated[
-        str | None,
-        typer.Option(help="Path to skillset.yaml"),
-    ] = None,
-    global_: Annotated[
-        bool, typer.Option("-g", "--global", help="Sync global ~/.claude/skillset.yaml")
-    ] = False,
-) -> None:
-    """Sync skills from skillset.yaml. Uses local if found, otherwise global."""
-    cmd_sync(file=file, g=global_)
 
 
 @app.command()

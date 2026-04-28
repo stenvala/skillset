@@ -72,7 +72,7 @@ def test_links_section(env, capsys):
         f"skills: {{}}\nlinks:\n  {link_path}: {target}\n"
     )
 
-    with patch("skillset.commands.update.subprocess.run") as mock_run:
+    with patch("skillset.commands.apply.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
         cmd_apply(file=str(yaml_file))
 
@@ -91,7 +91,7 @@ def test_links_existing_symlink(env, capsys):
         f"skills: {{}}\nlinks:\n  {link_path}: {target}\n"
     )
 
-    with patch("skillset.commands.update.subprocess.run") as mock_run:
+    with patch("skillset.commands.apply.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         cmd_apply(file=str(yaml_file))
 
@@ -110,7 +110,7 @@ def test_links_existing_file_skipped(env, capsys):
         f"skills: {{}}\nlinks:\n  {existing}: {target}\n"
     )
 
-    with patch("skillset.commands.update.subprocess.run") as mock_run:
+    with patch("skillset.commands.apply.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         cmd_apply(file=str(yaml_file))
 
@@ -132,7 +132,7 @@ def test_apply_global_flag(env, source_repo, capsys):
 
 def test_apply_local_skillset(env, source_repo, capsys, monkeypatch):
     """cmd_apply() finds local skillset.yaml via find_skillset_root."""
-    monkeypatch.setattr("skillset.commands.update.find_skillset_root", lambda: env.project)
+    monkeypatch.setattr("skillset.commands.apply.find_skillset_root", lambda: env.project)
     yaml_file = env.project / "skillset.yaml"
     yaml_file.write_text(f"skills:\n  {source_repo}:\n    enabled: ['*']\n")
 

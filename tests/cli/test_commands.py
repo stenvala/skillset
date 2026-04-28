@@ -60,7 +60,7 @@ def test_remove_interactive_flag():
 def test_update_invokes_cmd_update():
     with patch("skillset.cli.cmd_update") as mock:
         runner.invoke(app, ["update"])
-        mock.assert_called_once()
+        mock.assert_called_once_with(file=None, g=False)
 
 
 def test_init_invokes_cmd_init():
@@ -73,12 +73,6 @@ def test_init_global():
     with patch("skillset.cli.cmd_init") as mock:
         runner.invoke(app, ["init", "--global"])
         mock.assert_called_once_with(g=True)
-
-
-def test_sync_invokes_cmd_sync():
-    with patch("skillset.cli.cmd_sync") as mock:
-        runner.invoke(app, ["sync"])
-        mock.assert_called_once_with(file=None, g=False)
 
 
 def test_clean_invokes_cmd_clean():
