@@ -152,6 +152,7 @@ def _update_dict_entry(
     editable = value.get("editable", False)
     path_str = value.get("path")
     source_str = value.get("source")
+    ref_str = value.get("ref")
     use_copy = value.get("copy", False)
     enabled_raw = value.get("enabled")
     disabled_raw = value.get("disabled", [])
@@ -168,6 +169,7 @@ def _update_dict_entry(
         editable,
         source_str,
         path_str,
+        ref_str,
     )
     if source_dir is None:
         return 0
@@ -212,19 +214,20 @@ def _update_dict_entry(
     return total
 
 
-def _resolve_update_source(repo_key, editable, source_str, path_str):
+def _resolve_update_source(repo_key, editable, source_str, path_str, ref_str=None):
     """Resolve source directory for update."""
     owner = repo_name = None
     if editable:
         return _resolve_editable_source(repo_key, source_str, path_str, owner, repo_name)
 
-    print(f"\nUpdating {repo_key}...")
+    label = repo_key + (f"@{ref_str}" if ref_str else "")
+    print(f"\nUpdating {label}...")
     try:
         owner, repo_name = parse_repo_spec(repo_key)
     except ValueError as e:
         print(f"  {e}")
         return None, None, None, None
-    repo_dir = clone_or_pull(owner, repo_name)
+    repo_dir = clone_or_pull(owner, repo_name, ref_str)
     source_dir = repo_dir / path_str if path_str else repo_dir
     if path_str and not source_dir.is_dir():
         print(f"  Path not found in repo: {path_str}")

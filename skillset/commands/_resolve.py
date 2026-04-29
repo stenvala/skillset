@@ -19,13 +19,39 @@ from skillset.ui import (
 )
 
 
-def _resolve_source(repo, interactive, skills, subpath, no_cache):
-    """Resolve the source repo/dir and metadata. Returns a 9-tuple."""
+def derive_toml_key_and_ref(repo: str, ref: str | None) -> tuple[str | None, str | None]:
+    """Return (toml_key, effective_ref) for a repo string without cloning.
+
+    For local paths and bare skill names there's no toml ref to compare against,
+    so this returns (None, None).
+    """
+    if not repo or "://" in repo:
+        if not repo:
+            return None, None
+        info = parse_github_url(repo)
+        if not info:
+            return None, None
+        owner, repo_name, url_branch, _ = info
+        return f"{owner}/{repo_name}", ref or url_branch
+    if is_local_path(repo):
+        return None, None
+    if "/" in repo:
+        try:
+            owner, repo_name = parse_repo_spec(repo)
+        except ValueError:
+            return None, None
+        return f"{owner}/{repo_name}", ref
+    return None, None
+
+
+def _resolve_source(repo, interactive, skills, subpath, no_cache, ref=None):
+    """Resolve the source repo/dir and metadata. Returns a 10-tuple."""
     temp_dir = None
     source_label = None
     toml_key = None
     is_editable = False
     toml_source = None
+    resolved_ref = ref
 
     if not repo:
         if not interactive:
@@ -33,17 +59,21 @@ def _resolve_source(repo, interactive, skills, subpath, no_cache):
             sys.exit(1)
         repo = _pick_repo_interactively()
         if not repo:
-            return None, None, None, False, None, None, None, None, None
+            return None, None, None, False, None, None, None, None, None, None
 
     if "://" in repo:
-        repo_dir, toml_key, subpath, temp_dir, source_label = _resolve_url(repo, subpath, no_cache)
+        repo_dir, toml_key, subpath, temp_dir, source_label, resolved_ref = _resolve_url(
+            repo, subpath, no_cache, ref
+        )
     elif is_local_path(repo):
         is_editable = True
         repo_dir, toml_key, toml_source = _resolve_local(repo)
+        resolved_ref = None
     elif "/" in repo:
-        repo_dir, toml_key, temp_dir, source_label = _resolve_spec(repo, no_cache)
+        repo_dir, toml_key, temp_dir, source_label = _resolve_spec(repo, no_cache, ref)
     else:
         is_editable, repo_dir, toml_key, toml_source, skills = _resolve_skill_name(repo, skills)
+        resolved_ref = None
 
     return (
         repo,
@@ -55,6 +85,7 @@ def _resolve_source(repo, interactive, skills, subpath, no_cache):
         source_label,
         skills,
         subpath,
+        resolved_ref,
     )
 
 
@@ -120,19 +151,20 @@ def _resolve_skill_name(repo, skills):
     return is_editable, source_dir, toml_key, toml_source, skills
 
 
-def _resolve_url(repo, subpath, no_cache):
-    """Resolve a GitHub URL. Returns (repo_dir, toml_key, subpath, temp_dir, source_label)."""
+def _resolve_url(repo, subpath, no_cache, ref=None):
+    """Resolve a GitHub URL. Returns (repo_dir, toml_key, subpath, temp_dir, source_label, ref)."""
     github_info = parse_github_url(repo)
     if not github_info:
         print(f"Invalid GitHub URL: {repo}")
         sys.exit(1)
-    owner, repo_name, _branch, url_subpath = github_info
+    owner, repo_name, url_branch, url_subpath = github_info
     toml_key = f"{owner}/{repo_name}"
     subpath = subpath or url_subpath
+    ref = ref or url_branch
     temp_dir = None
     source_label = None
     if no_cache:
-        repo_dir = clone_to_temp(owner, repo_name)
+        repo_dir = clone_to_temp(owner, repo_name, ref)
         temp_dir = repo_dir.parent
         source_label = f"{owner}/{repo_name}"
     else:
@@ -140,11 +172,11 @@ def _resolve_url(repo, subpath, no_cache):
         if is_link(repo_dir):
             repo_dir = repo_dir.resolve()
         else:
-            repo_dir = clone_or_pull(owner, repo_name)
-    return repo_dir, toml_key, subpath, temp_dir, source_label
+            repo_dir = clone_or_pull(owner, repo_name, ref)
+    return repo_dir, toml_key, subpath, temp_dir, source_label, ref
 
 
-def _resolve_spec(repo, no_cache):
+def _resolve_spec(repo, no_cache, ref=None):
     """Resolve an owner/repo spec. Returns (repo_dir, toml_key, temp_dir, source_label)."""
     try:
         owner, repo_name = parse_repo_spec(repo)
@@ -155,7 +187,7 @@ def _resolve_spec(repo, no_cache):
     temp_dir = None
     source_label = None
     if no_cache:
-        repo_dir = clone_to_temp(owner, repo_name)
+        repo_dir = clone_to_temp(owner, repo_name, ref)
         temp_dir = repo_dir.parent
         source_label = f"{owner}/{repo_name}"
     else:
@@ -163,5 +195,5 @@ def _resolve_spec(repo, no_cache):
         if is_link(repo_dir):
             repo_dir = repo_dir.resolve()
         else:
-            repo_dir = clone_or_pull(owner, repo_name)
+            repo_dir = clone_or_pull(owner, repo_name, ref)
     return repo_dir, toml_key, temp_dir, source_label

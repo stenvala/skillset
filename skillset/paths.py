@@ -116,6 +116,7 @@ def add_to_skillset(
     disabled: list[str] | None = None,
     editable: bool = False,
     source: str | None = None,
+    ref: str | None = None,
 ) -> bool:
     """Add a new entry to a skillset.yaml file. Returns True if written.
 
@@ -142,6 +143,8 @@ def add_to_skillset(
         entry["source"] = source
     if path:
         entry["path"] = path
+    if ref:
+        entry["ref"] = ref
     if enabled is not None:
         entry["enabled"] = _flow_list(enabled)
     if disabled:
@@ -208,6 +211,25 @@ def update_skillset_skills(
     if modified:
         save_skillset(config_path, data)
     return modified
+
+
+def set_skillset_ref(config_path: Path, repo_key: str, ref: str | None) -> bool:
+    """Set or clear the `ref:` field on an existing entry. Returns True if modified."""
+    if not config_path.exists():
+        return False
+    data = load_skillset(config_path)
+    entry = (data.get("skills") or {}).get(repo_key)
+    if not isinstance(entry, dict):
+        return False
+    current = entry.get("ref")
+    if ref == current:
+        return False
+    if ref is None:
+        del entry["ref"]
+    else:
+        entry["ref"] = ref
+    save_skillset(config_path, data)
+    return True
 
 
 def _list_add(entry: dict, key: str, name: str) -> bool:

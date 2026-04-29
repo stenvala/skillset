@@ -4,7 +4,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from skillset.commands._resolve import _resolve_source
+from skillset.commands._resolve import _resolve_source, derive_toml_key_and_ref
 from skillset.commands._templates import (
     GLOBAL_SKILLSET_TEMPLATE,
     LOCAL_SKILLSET_TEMPLATE,
@@ -17,6 +17,8 @@ from skillset.paths import (
     abbrev,
     add_to_skillset,
     find_skillset_root,
+    load_skillset,
+    set_skillset_ref,
     get_cache_dir,
     get_global_commands_dir,
     get_global_skills_dir,
@@ -33,14 +35,19 @@ def cmd_add(
     g: bool = False,
     skills: list[str] | None = None,
     subpath: str | None = None,
+    ref: str | None = None,
     copy: bool = False,
     no_cache: bool = False,
     trial: bool = False,
     interactive: bool = False,
+    force: bool = False,
 ) -> None:
     """Add skills and permissions from a GitHub repo or local directory."""
     skillset_root = None if g else find_skillset_root()
     is_local = skillset_root is not None
+
+    if not _check_ref_conflict(repo, ref, is_local, skillset_root, force):
+        return
 
     (
         repo,
@@ -52,7 +59,8 @@ def cmd_add(
         source_label,
         skills,
         subpath,
-    ) = _resolve_source(repo, interactive, skills, subpath, no_cache)
+        ref,
+    ) = _resolve_source(repo, interactive, skills, subpath, no_cache, ref)
     if repo is None:
         return
 
@@ -90,6 +98,7 @@ def cmd_add(
             toml_source,
             is_local,
             skillset_root,
+            ref,
         )
 
     if not linked_skills and not linked_commands:
@@ -235,6 +244,7 @@ def _register_in_toml(
     toml_source,
     is_local,
     skillset_root,
+    ref=None,
 ):
     """Register or update skillset.yaml entry for this repo."""
     toml_path = (
@@ -249,12 +259,19 @@ def _register_in_toml(
         disabled=disabled,
         editable=is_editable,
         source=toml_source,
+        ref=ref,
     )
     if written:
         print(f"Added to {abbrev(toml_path)}")
         return
 
-    # Repo already registered -- fold new selections into existing enabled list.
+    # Repo already registered -- if a ref was supplied, rewrite it (the
+    # --force conflict gate upstream is what allows reaching this branch
+    # with a different ref).
+    if ref is not None and set_skillset_ref(toml_path, toml_key, ref):
+        print(f"Updated ref in {abbrev(toml_path)}")
+
+    # Fold new selections into existing enabled list.
     # Newly-enabled names should also leave the disabled list if they were there.
     if enabled and "*" in enabled:
         return  # nothing sensible to fold when the user asked for "all"
@@ -267,6 +284,46 @@ def _register_in_toml(
     )
     if updated:
         print(f"Updated {abbrev(toml_path)}")
+
+
+def _check_ref_conflict(repo, ref, is_local, skillset_root, force) -> bool:
+    """Refuse a ref override on an already-registered repo unless --force.
+
+    Returns True to continue, False to abort cmd_add. When --force is set we
+    only print a notice; the existing entry's ref is rewritten later.
+    """
+    toml_key, effective_ref = derive_toml_key_and_ref(repo, ref) if repo else (None, None)
+    if not toml_key:
+        return True
+
+    toml_path = (
+        (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
+    )
+    if not toml_path.exists():
+        return True
+
+    data = load_skillset(toml_path)
+    entry = (data.get("skills") or {}).get(toml_key)
+    if not isinstance(entry, dict):
+        return True
+
+    existing_ref = entry.get("ref")
+    if effective_ref == existing_ref:
+        return True
+    if existing_ref is None and effective_ref is None:
+        return True
+
+    new_label = effective_ref or "(none)"
+    old_label = existing_ref or "(none)"
+    if not force:
+        print(
+            f"{toml_key} is already pinned to ref {old_label} in "
+            f"{abbrev(toml_path)}; refusing to install at {new_label}."
+        )
+        print("Edit skillset.yaml or re-run with --force to overwrite.")
+        return False
+    print(f"--force: overriding {toml_key} ref {old_label} -> {new_label}")
+    return True
 
 
 def cmd_init(*, g: bool = False) -> None:

@@ -61,6 +61,10 @@ def add(
         str | None,
         typer.Option("-p", "--path", help="Subdirectory within the repo to use as root"),
     ] = None,
+    ref: Annotated[
+        str | None,
+        typer.Option("--ref", help="Git ref (branch, tag, or commit) to check out"),
+    ] = None,
     copy: Annotated[
         bool,
         typer.Option("--copy", help="Copy files instead of symlinking (for Windows without admin)"),
@@ -77,6 +81,10 @@ def add(
         bool,
         typer.Option("-i", "--interactive", help="Select skills interactively with fzf"),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Override an existing pinned ref in skillset.yaml"),
+    ] = False,
 ) -> None:
     """Add skills from a GitHub repo. Installs locally if skillset.yaml is found in path."""
     cmd_add(
@@ -84,10 +92,12 @@ def add(
         g=global_,
         skills=skill,
         subpath=subpath,
+        ref=ref,
         copy=copy,
         no_cache=no_cache,
         trial=trial,
         interactive=interactive,
+        force=force,
     )
 
 
