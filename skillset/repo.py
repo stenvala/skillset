@@ -48,16 +48,7 @@ def clone_or_pull(owner: str, repo: str, ref: str | None = None) -> Path:
         label = f"{owner}/{repo}" + (f"@{ref}" if ref else "")
         print(f"Updating {label}...")
         try:
-            subprocess.run(
-                ["git", "fetch", "--all", "--tags", "--prune"],
-                cwd=repo_dir,
-                check=True,
-                capture_output=True,
-            )
-            if ref:
-                _checkout_ref(repo_dir, ref)
-            else:
-                subprocess.run(["git", "pull"], cwd=repo_dir, check=True, capture_output=True)
+            _fetch_or_pull(repo_dir, ref, ssh_url)
         except subprocess.CalledProcessError as e:
             stderr = e.stderr.decode() if e.stderr else ""
             stdout = e.stdout.decode() if e.stdout else ""
@@ -84,6 +75,36 @@ def clone_or_pull(owner: str, repo: str, ref: str | None = None) -> Path:
             _checkout_ref(repo_dir, ref)
 
     return repo_dir
+
+
+def _is_https_auth_failure(stderr: str) -> bool:
+    """Match HTTPS auth/not-found errors that should trigger SSH fallback."""
+    return "Authentication failed" in stderr or "Repository not found" in stderr
+
+
+def _fetch_or_pull(repo_dir: Path, ref: str | None, ssh_url: str) -> None:
+    """Fetch (with ref) or pull (without). Retry over SSH on HTTPS auth failure."""
+    cmd = (
+        ["git", "fetch", "--tags", "--prune", "origin"]
+        if ref
+        else ["git", "pull"]
+    )
+    try:
+        subprocess.run(cmd, cwd=repo_dir, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode() if e.stderr else ""
+        if not _is_https_auth_failure(stderr):
+            raise
+        print("HTTPS failed, switching origin to SSH...")
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", ssh_url],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(cmd, cwd=repo_dir, check=True, capture_output=True)
+    if ref:
+        _checkout_ref(repo_dir, ref)
 
 
 def _checkout_ref(repo_dir: Path, ref: str) -> None:

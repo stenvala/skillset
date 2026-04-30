@@ -50,7 +50,12 @@ def _expand_patterns(patterns: list[str], names: set[str]) -> set[str]:
     return result
 
 
-def cmd_update(*, file: str | None = None, g: bool = False) -> None:
+def cmd_update(
+    *,
+    file: str | None = None,
+    g: bool = False,
+    new: str = "ask",
+) -> None:
     """Update from skillset.yaml -- pull repos, link enabled, unlink disabled."""
     file_path = _resolve_toml_path(file, g)
     is_local = file_path != get_global_skillset_path()
@@ -87,7 +92,9 @@ def cmd_update(*, file: str | None = None, g: bool = False) -> None:
         )
         total_linked += linked
 
-    total_linked += _prompt_for_new_skills(new_skills_found, new_skills_ctx, skills_dir, file_path)
+    total_linked += _prompt_for_new_skills(
+        new_skills_found, new_skills_ctx, skills_dir, file_path, new
+    )
 
     print(f"\nUpdate complete ({total_linked} skill(s) linked)")
 
@@ -298,10 +305,18 @@ def _update_lists(
     return total
 
 
-def _collect_new_skill_decisions(names, source_dir, skills_dir, use_copy):
-    """Collect user decisions for new skills. Returns (enabled, disabled, linked_count)."""
-    prompt = "\nAdd [a]ll / [i]gnore all / [s]elect individually? [a/i/s] "
-    choice = input(prompt).strip().lower()
+def _collect_new_skill_decisions(names, source_dir, skills_dir, use_copy, mode="ask"):
+    """Collect user decisions for new skills. Returns (enabled, disabled, linked_count).
+
+    mode: "ask" (prompt the user), "yes" (accept all), "no" (ignore all).
+    """
+    if mode == "yes":
+        choice = "a"
+    elif mode == "no":
+        choice = "i"
+    else:
+        prompt = "\nAdd [a]ll / [i]gnore all / [s]elect individually? [a/i/s] "
+        choice = input(prompt).strip().lower()
 
     if choice in ("a", "all"):
         linked = link_skills(source_dir, skills_dir, only=set(names), copy=use_copy)
@@ -332,7 +347,7 @@ def _collect_individual_decisions(names, source_dir, skills_dir, use_copy):
     return enabled, disabled, total
 
 
-def _prompt_for_new_skills(new_skills_found, new_skills_ctx, skills_dir, file_path):
+def _prompt_for_new_skills(new_skills_found, new_skills_ctx, skills_dir, file_path, mode="ask"):
     """Prompt user for new untracked skills. Returns count of linked skills."""
     if not new_skills_found:
         return 0
@@ -346,7 +361,7 @@ def _prompt_for_new_skills(new_skills_found, new_skills_ctx, skills_dir, file_pa
             print(f"  {name}")
 
         enabled, disabled, linked = _collect_new_skill_decisions(
-            names, source_dir, skills_dir, use_copy
+            names, source_dir, skills_dir, use_copy, mode
         )
         total += linked
 

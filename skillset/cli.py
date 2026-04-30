@@ -110,9 +110,21 @@ def update(
     global_: Annotated[
         bool, typer.Option("-g", "--global", help="Update from global ~/.claude/skillset.yaml")
     ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("-y", "--yes", help="Accept all new skills without prompting"),
+    ] = False,
+    no: Annotated[
+        bool,
+        typer.Option("-n", "--no", help="Ignore all new skills without prompting"),
+    ] = False,
 ) -> None:
     """Update skills from skillset.yaml -- pull repos, link enabled, unlink disabled."""
-    cmd_update(file=file, g=global_)
+    if yes and no:
+        typer.echo("--yes and --no are mutually exclusive", err=True)
+        raise typer.Exit(1)
+    new = "yes" if yes else "no" if no else "ask"
+    cmd_update(file=file, g=global_, new=new)
 
 
 @app.command()

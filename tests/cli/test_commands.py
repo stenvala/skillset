@@ -60,7 +60,7 @@ def test_remove_interactive_flag():
 def test_update_invokes_cmd_update():
     with patch("skillset.cli.cmd_update") as mock:
         runner.invoke(app, ["update"])
-        mock.assert_called_once_with(file=None, g=False)
+        mock.assert_called_once_with(file=None, g=False, new="ask")
 
 
 def test_init_invokes_cmd_init():
