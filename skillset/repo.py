@@ -1,10 +1,31 @@
 """Git repository operations — clone, pull, parse specs."""
 
+import os
 import subprocess
 import tempfile
 from pathlib import Path
 
 from skillset.paths import get_cache_dir
+
+
+def _git_env() -> dict[str, str]:
+    """Env that prevents git from prompting interactively for credentials.
+
+    Without this, an HTTPS clone of a private repo blocks waiting for a
+    password instead of failing fast and letting the SSH fallback run.
+    """
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = "true"  # /usr/bin/true exits 0 with no output
+    env["SSH_ASKPASS"] = "true"
+    env.pop("GIT_USERNAME", None)
+    env.pop("GIT_PASSWORD", None)
+    return env
+
+
+def _git(*args: str, **kwargs) -> subprocess.CompletedProcess:
+    """subprocess.run for git with the no-prompt env baked in."""
+    return subprocess.run(["git", *args], env=_git_env(), **kwargs)
 
 
 def parse_repo_spec(spec: str) -> tuple[str, str]:
@@ -58,17 +79,13 @@ def clone_or_pull(owner: str, repo: str, ref: str | None = None) -> Path:
         print(f"Cloning {owner}/{repo}...")
         repo_dir.parent.mkdir(parents=True, exist_ok=True)
         try:
-            subprocess.run(
-                ["git", "clone", https_url, str(repo_dir)], check=True, capture_output=True
-            )
+            _git("clone", https_url, str(repo_dir), check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             # If HTTPS fails (e.g., auth failed for private repo), try SSH
             stderr = e.stderr.decode() if e.stderr else ""
-            if "Authentication failed" in stderr or e.returncode == 128:
+            if _is_https_auth_failure(stderr) or e.returncode == 128:
                 print("HTTPS failed, trying SSH...")
-                subprocess.run(
-                    ["git", "clone", ssh_url, str(repo_dir)], check=True, capture_output=True
-                )
+                _git("clone", ssh_url, str(repo_dir), check=True, capture_output=True)
             else:
                 raise
         if ref:
@@ -84,39 +101,33 @@ def _is_https_auth_failure(stderr: str) -> bool:
 
 def _fetch_or_pull(repo_dir: Path, ref: str | None, ssh_url: str) -> None:
     """Fetch (with ref) or pull (without). Retry over SSH on HTTPS auth failure."""
-    cmd = (
-        ["git", "fetch", "--tags", "--prune", "origin"]
-        if ref
-        else ["git", "pull"]
-    )
+    args = ("fetch", "--tags", "--prune", "origin") if ref else ("pull",)
     try:
-        subprocess.run(cmd, cwd=repo_dir, check=True, capture_output=True)
+        _git(*args, cwd=repo_dir, check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode() if e.stderr else ""
         if not _is_https_auth_failure(stderr):
             raise
         print("HTTPS failed, switching origin to SSH...")
-        subprocess.run(
-            ["git", "remote", "set-url", "origin", ssh_url],
+        _git(
+            "remote",
+            "set-url",
+            "origin",
+            ssh_url,
             cwd=repo_dir,
             check=True,
             capture_output=True,
         )
-        subprocess.run(cmd, cwd=repo_dir, check=True, capture_output=True)
+        _git(*args, cwd=repo_dir, check=True, capture_output=True)
     if ref:
         _checkout_ref(repo_dir, ref)
 
 
 def _checkout_ref(repo_dir: Path, ref: str) -> None:
     """Check out ref and fast-forward if it tracks a remote branch."""
-    subprocess.run(["git", "checkout", ref], cwd=repo_dir, check=True, capture_output=True)
+    _git("checkout", ref, cwd=repo_dir, check=True, capture_output=True)
     # No-op for detached HEAD (tags/SHAs); fast-forwards a tracking branch.
-    subprocess.run(
-        ["git", "merge", "--ff-only"],
-        cwd=repo_dir,
-        check=False,
-        capture_output=True,
-    )
+    _git("merge", "--ff-only", cwd=repo_dir, check=False, capture_output=True)
 
 
 def clone_to_temp(owner: str, repo: str, ref: str | None = None) -> Path:
@@ -128,24 +139,16 @@ def clone_to_temp(owner: str, repo: str, ref: str | None = None) -> Path:
 
     label = f"{owner}/{repo}" + (f"@{ref}" if ref else "")
     print(f"Cloning {label} (no-cache)...")
-    clone_args = ["git", "clone", "--depth", "1"]
+    clone_args = ["clone", "--depth", "1"]
     if ref:
         clone_args += ["--branch", ref]
     try:
-        subprocess.run(
-            [*clone_args, https_url, str(repo_dir)],
-            check=True,
-            capture_output=True,
-        )
+        _git(*clone_args, https_url, str(repo_dir), check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode() if e.stderr else ""
-        if "Authentication failed" in stderr or e.returncode == 128:
+        if _is_https_auth_failure(stderr) or e.returncode == 128:
             print("HTTPS failed, trying SSH...")
-            subprocess.run(
-                [*clone_args, ssh_url, str(repo_dir)],
-                check=True,
-                capture_output=True,
-            )
+            _git(*clone_args, ssh_url, str(repo_dir), check=True, capture_output=True)
         else:
             raise
     return repo_dir
