@@ -66,8 +66,6 @@ def clone_or_pull(owner: str, repo: str, ref: str | None = None) -> Path:
     ssh_url = f"git@github.com:{owner}/{repo}.git"
 
     if repo_dir.exists():
-        label = f"{owner}/{repo}" + (f"@{ref}" if ref else "")
-        print(f"Updating {label}...")
         try:
             _fetch_or_pull(repo_dir, ref, ssh_url)
         except subprocess.CalledProcessError as e:

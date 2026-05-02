@@ -221,6 +221,21 @@ def _update_dict_entry(
     return total
 
 
+def _last_commit_info(repo_dir: Path) -> str | None:
+    """Return 'YYYY-MM-DD HH:MM (Nd ago) abc1234 subject' for HEAD, or None."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%cs %cr %h %s"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    return result.stdout.strip() or None
+
+
 def _resolve_update_source(repo_key, editable, source_str, path_str, ref_str=None):
     """Resolve source directory for update."""
     owner = repo_name = None
@@ -235,6 +250,9 @@ def _resolve_update_source(repo_key, editable, source_str, path_str, ref_str=Non
         print(f"  {e}")
         return None, None, None, None
     repo_dir = clone_or_pull(owner, repo_name, ref_str)
+    last = _last_commit_info(repo_dir)
+    if last:
+        print(f"  latest commit: {last}")
     source_dir = repo_dir / path_str if path_str else repo_dir
     if path_str and not source_dir.is_dir():
         print(f"  Path not found in repo: {path_str}")
