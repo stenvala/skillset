@@ -156,6 +156,12 @@ def _update_dict_entry(
     new_ctx,
 ):
     """Update a sub-table entry with enabled/disabled lists."""
+    if value.get("snapshot"):
+        ref_str = value.get("ref")
+        suffix = f" @ {ref_str[:7]}" if ref_str else ""
+        print(f"\nSkipping {repo_key} (snapshot{suffix})")
+        return 0
+
     editable = value.get("editable", False)
     path_str = value.get("path")
     source_str = value.get("source")

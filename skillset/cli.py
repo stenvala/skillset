@@ -85,6 +85,20 @@ def add(
         bool,
         typer.Option("--force", help="Override an existing pinned ref in skillset.yaml"),
     ] = False,
+    snapshot: Annotated[
+        bool,
+        typer.Option(
+            "--snapshot",
+            help="Copy skills frozen at current HEAD; skipped by 'update'",
+        ),
+    ] = False,
+    unsnapshot: Annotated[
+        bool,
+        typer.Option(
+            "--unsnapshot",
+            help="Drop snapshot/ref pin and switch back to live links",
+        ),
+    ] = False,
 ) -> None:
     """Add skills from a GitHub repo. Installs locally if skillset.yaml is found in path."""
     cmd_add(
@@ -98,6 +112,8 @@ def add(
         trial=trial,
         interactive=interactive,
         force=force,
+        snapshot=snapshot,
+        unsnapshot=unsnapshot,
     )
 
 

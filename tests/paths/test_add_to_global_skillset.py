@@ -60,3 +60,25 @@ def test_editable(home_dir):
     entry = data["skills"]["my-skills"]
     assert entry["editable"] is True
     assert entry["source"] == "~/local/skills"
+
+
+def test_snapshot_with_ref(home_dir):
+    toml_path = home_dir / ".claude" / "skillset.yaml"
+    toml_path.parent.mkdir(parents=True)
+    toml_path.write_text("skills: {}\n")
+
+    from skillset.paths import add_to_skillset
+
+    result = add_to_skillset(
+        toml_path,
+        "owner/repo",
+        enabled=["*"],
+        ref="abc1234",
+        snapshot=True,
+    )
+    assert result is True
+
+    data = load_skillset(toml_path)
+    entry = data["skills"]["owner/repo"]
+    assert entry["snapshot"] is True
+    assert entry["ref"] == "abc1234"

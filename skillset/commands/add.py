@@ -17,15 +17,17 @@ from skillset.paths import (
     abbrev,
     add_to_skillset,
     find_skillset_root,
-    load_skillset,
-    set_skillset_ref,
     get_cache_dir,
     get_global_commands_dir,
     get_global_skills_dir,
     get_global_skillset_path,
     get_local_skillset_path,
+    load_skillset,
+    set_skillset_ref,
+    set_skillset_snapshot,
     update_skillset_skills,
 )
+from skillset.repo import get_head_sha
 from skillset.ui import fzf_select, fzf_select_skills, prompt_skill_selection
 
 
@@ -41,10 +43,26 @@ def cmd_add(
     trial: bool = False,
     interactive: bool = False,
     force: bool = False,
+    snapshot: bool = False,
+    unsnapshot: bool = False,
 ) -> None:
     """Add skills and permissions from a GitHub repo or local directory."""
+    if snapshot and unsnapshot:
+        print("--snapshot and --unsnapshot are mutually exclusive")
+        sys.exit(1)
+
     skillset_root = None if g else find_skillset_root()
     is_local = skillset_root is not None
+
+    # --snapshot: copy as-is, freeze in yaml; re-snapshotting overrides ref.
+    if snapshot:
+        copy = True
+        force = True
+
+    # --unsnapshot: drop the pinned ref + snapshot flag, switch back to live links.
+    if unsnapshot:
+        force = True
+        ref = None
 
     if not _check_ref_conflict(repo, ref, is_local, skillset_root, force):
         return
@@ -70,6 +88,8 @@ def cmd_add(
         sys.exit(1)
 
     use_copy = copy or no_cache
+    ref = _pin_snapshot_ref(snapshot, repo_dir, ref)
+
     skills_dir = (skillset_root / ".claude" / "skills") if is_local else get_global_skills_dir()
 
     linked_skills, enabled_list, disabled_list = _link_skills_for_add(
@@ -99,6 +119,8 @@ def cmd_add(
             is_local,
             skillset_root,
             ref,
+            snapshot,
+            unsnapshot,
         )
 
     if not linked_skills and not linked_commands:
@@ -106,6 +128,13 @@ def cmd_add(
 
     if temp_dir:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _pin_snapshot_ref(snapshot: bool, repo_dir, ref):
+    """For snapshot installs, replace ref with the resolved HEAD SHA."""
+    if not snapshot or repo_dir is None:
+        return ref
+    return get_head_sha(repo_dir) or ref
 
 
 def _link_skills_for_add(source_dir, skills_dir, skills, interactive, use_copy, source_label):
@@ -227,9 +256,7 @@ def _ensure_toml_exists(is_editable, is_local, skillset_root):
     """
     if not is_editable:
         return
-    toml_path = (
-        (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
-    )
+    toml_path = (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
     if not toml_path.exists():
         toml_path.parent.mkdir(parents=True, exist_ok=True)
         toml_path.write_text("skills: {}\n")
@@ -245,11 +272,11 @@ def _register_in_toml(
     is_local,
     skillset_root,
     ref=None,
+    snapshot=False,
+    unsnapshot=False,
 ):
     """Register or update skillset.yaml entry for this repo."""
-    toml_path = (
-        (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
-    )
+    toml_path = (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
 
     written = add_to_skillset(
         toml_path,
@@ -260,16 +287,24 @@ def _register_in_toml(
         editable=is_editable,
         source=toml_source,
         ref=ref,
+        snapshot=snapshot,
     )
     if written:
         print(f"Added to {abbrev(toml_path)}")
         return
 
-    # Repo already registered -- if a ref was supplied, rewrite it (the
-    # --force conflict gate upstream is what allows reaching this branch
-    # with a different ref).
-    if ref is not None and set_skillset_ref(toml_path, toml_key, ref):
+    # Repo already registered. --unsnapshot strips ref+snapshot; otherwise we
+    # only rewrite ref when one was supplied. The --force conflict gate is
+    # what allows reaching this branch with a different ref at all.
+    if unsnapshot:
+        if set_skillset_ref(toml_path, toml_key, None):
+            print(f"Cleared ref in {abbrev(toml_path)}")
+    elif ref is not None and set_skillset_ref(toml_path, toml_key, ref):
         print(f"Updated ref in {abbrev(toml_path)}")
+    target_snapshot = False if unsnapshot else snapshot
+    if set_skillset_snapshot(toml_path, toml_key, target_snapshot):
+        state = "snapshot" if target_snapshot else "no-snapshot"
+        print(f"Marked {toml_key} as {state} in {abbrev(toml_path)}")
 
     # Fold new selections into existing enabled list.
     # Newly-enabled names should also leave the disabled list if they were there.
@@ -296,9 +331,7 @@ def _check_ref_conflict(repo, ref, is_local, skillset_root, force) -> bool:
     if not toml_key:
         return True
 
-    toml_path = (
-        (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
-    )
+    toml_path = (skillset_root / SKILLSET_CONFIG_FILE) if is_local else get_global_skillset_path()
     if not toml_path.exists():
         return True
 

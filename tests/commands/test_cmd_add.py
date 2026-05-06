@@ -245,3 +245,36 @@ def test_add_from_cached_repo(env, source_repo, capsys):
 
     output = capsys.readouterr().out
     assert "Linked" in output
+
+
+def test_unsnapshot_clears_ref_and_flag(env, source_repo, capsys):
+    """--unsnapshot drops snapshot+ref from yaml and re-links as symlinks."""
+    yaml_file = env.home / ".claude" / "skillset.yaml"
+    yaml_file.write_text(
+        "skills:\n"
+        "  owner/repo:\n"
+        "    snapshot: true\n"
+        "    ref: abc1234deadbeef\n"
+        "    enabled: ['*']\n"
+    )
+
+    with (
+        patch("skillset.commands._resolve.clone_or_pull", return_value=source_repo),
+        patch("skillset.commands._resolve.get_repo_dir", return_value=source_repo),
+        patch("skillset.commands._resolve.is_link", return_value=False),
+    ):
+        cmd_add(repo="owner/repo", skills=["skill-a"], unsnapshot=True)
+
+    from skillset.paths import load_skillset
+
+    entry = load_skillset(yaml_file)["skills"]["owner/repo"]
+    assert "ref" not in entry
+    assert "snapshot" not in entry
+
+    skills_dir = env.home / ".claude" / "skills"
+    assert (skills_dir / "skill-a").is_symlink()
+
+
+def test_snapshot_and_unsnapshot_mutually_exclusive(env):
+    with pytest.raises(SystemExit):
+        cmd_add(repo="owner/repo", snapshot=True, unsnapshot=True)

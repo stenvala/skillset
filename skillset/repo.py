@@ -128,6 +128,16 @@ def _checkout_ref(repo_dir: Path, ref: str) -> None:
     _git("merge", "--ff-only", cwd=repo_dir, check=False, capture_output=True)
 
 
+def get_head_sha(repo_dir: Path) -> str | None:
+    """Return the full HEAD commit SHA for repo_dir, or None if unavailable."""
+    try:
+        result = _git("rev-parse", "HEAD", cwd=repo_dir, check=True, capture_output=True, text=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    sha = result.stdout.strip()
+    return sha or None
+
+
 def clone_to_temp(owner: str, repo: str, ref: str | None = None) -> Path:
     """Clone repo to a temp directory (caller must clean up). Returns repo path."""
     tmp_dir = Path(tempfile.mkdtemp(prefix="skillset-"))

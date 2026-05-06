@@ -107,7 +107,7 @@ def _flow_list(items: list[str]) -> CommentedSeq:
     return seq
 
 
-def add_to_skillset(
+def add_to_skillset(  # noqa: C901
     config_path: Path,
     repo_key: str,
     *,
@@ -117,6 +117,7 @@ def add_to_skillset(
     editable: bool = False,
     source: str | None = None,
     ref: str | None = None,
+    snapshot: bool = False,
 ) -> bool:
     """Add a new entry to a skillset.yaml file. Returns True if written.
 
@@ -145,6 +146,8 @@ def add_to_skillset(
         entry["path"] = path
     if ref:
         entry["ref"] = ref
+    if snapshot:
+        entry["snapshot"] = True
     if enabled is not None:
         entry["enabled"] = _flow_list(enabled)
     if disabled:
@@ -228,6 +231,25 @@ def set_skillset_ref(config_path: Path, repo_key: str, ref: str | None) -> bool:
         del entry["ref"]
     else:
         entry["ref"] = ref
+    save_skillset(config_path, data)
+    return True
+
+
+def set_skillset_snapshot(config_path: Path, repo_key: str, snapshot: bool) -> bool:
+    """Set or clear the `snapshot:` flag on an existing entry. Returns True if modified."""
+    if not config_path.exists():
+        return False
+    data = load_skillset(config_path)
+    entry = (data.get("skills") or {}).get(repo_key)
+    if not isinstance(entry, dict):
+        return False
+    current = bool(entry.get("snapshot", False))
+    if snapshot == current:
+        return False
+    if snapshot:
+        entry["snapshot"] = True
+    else:
+        del entry["snapshot"]
     save_skillset(config_path, data)
     return True
 

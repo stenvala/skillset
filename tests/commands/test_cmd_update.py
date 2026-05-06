@@ -345,3 +345,23 @@ def test_links_existing_file_skipped(env, capsys):
 
     output = capsys.readouterr().out
     assert "Skipping" in output
+
+
+def test_snapshot_entry_skipped(env, capsys):
+    """Entries with snapshot: true must not be cloned, pulled, or relinked."""
+    yaml_file = env.home / ".claude" / "skillset.yaml"
+    yaml_file.write_text(
+        "skills:\n"
+        "  owner/repo:\n"
+        "    snapshot: true\n"
+        "    ref: abcdef1234567890\n"
+        "    enabled: ['*']\n"
+    )
+
+    with patch("skillset.commands.update.clone_or_pull") as mock_clone:
+        cmd_update()
+        mock_clone.assert_not_called()
+
+    output = capsys.readouterr().out
+    assert "Skipping owner/repo" in output
+    assert "snapshot" in output

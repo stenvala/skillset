@@ -50,6 +50,28 @@ skillset add vivainio/agent-skills --no-cache   # clone to temp dir, copy, then 
 
 `--copy` is useful on Windows without admin privileges. `--no-cache` avoids keeping a local clone.
 
+### Snapshot a skill (frozen at a commit)
+
+```bash
+skillset add vivainio/agent-skills -s zaira --snapshot
+```
+
+`--snapshot` copies the selected skills as-is (implies `--copy`) and pins the
+entry in `skillset.yaml` to the resolved HEAD SHA with `snapshot: true`.
+`skillset update` skips snapshot entries entirely — no pull, no relink — so
+you can mix live skills from one repo with frozen skills from another.
+
+To refresh a snapshot to the latest commit, re-run `skillset add ... --snapshot`
+(it auto-overrides the pinned ref). To convert it back to a live entry:
+
+```bash
+skillset add vivainio/agent-skills -s zaira --unsnapshot
+```
+
+`--unsnapshot` clears `snapshot:` and `ref:` from the yaml entry and replaces
+the copied skill directories with live symlinks, so future `skillset update`
+runs track the upstream branch again.
+
 ### Add skills from a local path
 
 ```bash
